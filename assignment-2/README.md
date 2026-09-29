@@ -205,6 +205,8 @@ The worked example in the lecture notes uses a `rewrite-target: /` annotation, w
 
 With Ingress providing external access, `frontend-svc` no longer requires a NodePort. It was changed from `type: NodePort` to `type: ClusterIP` accordingly.
 
+![alt text](evidence/04-ingress-controller.png)
+
 ![Ingress created with both hosts listed, frontend-svc now ClusterIP](evidence/05-ingress-created.png)
 
 #### 4.1.1 Basic routing rules (2.2.1.1)
