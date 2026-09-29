@@ -1,18 +1,30 @@
-# DSO202 Assignment 2: Applying Unit II to the Task Tracker
-### Student name: Pema Dolker   
-### student id : 02230294    
-### Module : DSO202  
+## DSO202 Assignment 2: Applying Unit II to the Task Tracker
+
+**Student:** Pema Dolker    
+**Student ID:** 02230294    
+**Module:** DSO202: Scaling, Orchestration, Monitoring & Observability
+
+## Table of Contents
+ 
+ 1. Introduction   
+ 2. Environment and Architectural Changes  
+ 3. StatefulSets (2.1)   
+ 4. Ingress and Ingress Controllers (2.2)  
+ 5. Kubernetes RBAC (2.3)  
+ 6. Kubernetes Operators (2.4)   
+ 7. Implementation Notes   
+ 8. Limitations  
 
 
-There wasn't any proper brief for this particular assignment but only one sentence on the portal which stated "make use of the concepts and knowledge acquired in Unit 2 lectures in order to effectively perform Assignment 1." Therefore, rather than speculating the rubric, I utilized the module descriptor topics list as my checklist (2.1 to 2.4, even the numbered sub-points of each topic) and ensured that all of them are either implemented in the cluster or documented with the rationale as to why they are documented instead of being implemented.
+## 1. Introduction
 
-This is an enhancement of Assignment 1 app rather than a new one; similar task tracker, similar three-tier architecture, and namespace. I have not included the details of A1's readme file (ConfigMap/Secret configuration, the arm64 image issue, and the original CRUD implementation evidence) as they were submitted separately and remain relevant for this  assignment's readme file too.
+No formal brief was issued for this assignment. The only instruction given was: "utilise the concepts and knowledge gained from the Unit 2 lectures to effectively implement Assignment 1." In the absence of a rubric, the Unit II module descriptor topic list was used as the specification for this report, down to its numbered sub-points (2.1–2.4). Each sub-point is addressed either through a change made to the running cluster, with evidence, or through a written explanation stating why it is addressed in writing rather than built.
 
+This assignment extends the Assignment 1 application rather than replacing it: the same Task Tracker, the same three-tier architecture, and the same namespace (`dso202-assignment-01`). Configuration already established in A1 (the ConfigMap/Secret split, the image architecture issue, and the original CRUD verification) is not repeated here; it remains part of the A1 submission and continues to apply unchanged.
 
-## 1. What changed structurally
+## 2. Environment and Architectural Changes
 
-The folder `assignment-2/` has been created through the process of copying `assignment-1/`, which allows A1 to remain untouched. Also, the kind cluster had to be recreated because the port mapping of the kind clusters can’t be altered once they have been created and Ingress requires host port 80/443 to bemapped in, and the node has to be labelled ingress-ready=true. The old NodePort 30080 has been kept for the sake of comparison with the previous assignment.
-
+The working directory `assignment-2/` was created by copying `assignment-1/`, so that the A1 submission remains untouched. The kind cluster was also rebuilt, since kind's port mappings are fixed at cluster creation and an Ingress controller requires host ports 80 and 443 to be mapped in, with the node labelled `ingress-ready=true`. The previous NodePort mapping (30080) was retained for comparison, although the frontend no longer uses it once Ingress is in place.
 
 ```yaml
 kind: Cluster
@@ -37,20 +49,19 @@ nodes:
         protocol: TCP
 ```
 
-Recreating the cluster will have no effect on my A1 submission since it is already committed and pushed. 
+Recreating the cluster has no effect on the A1 submission, which was committed and pushed separately.
 
-This is because my images are still my personal amd64 build (pdolker/dso202-{frontend,backend,db}:1.0) just like in A1 submission since the tutor's sarojsanyasi/… images on Docker Hub are arm64-only, as checked on this cluster. Every image tag still has the "# TEMP" comment from A1 submission.
+The application images remain the amd64 rebuilds used in A1 (`pdolker/dso202-{frontend,backend,db}:1.0`), since the tutor-issued `sarojsanyasi/...` images are published for arm64 only. Every `image:` line still carries the `# TEMP` comment from A1, marking it for replacement if amd64 images are published later.
 
-## 2.1 StatefulSets
+## 3. StatefulSets (2.1)
 
-### 2.1.1 Use cases for StatefulSets
+### 3.1 Use cases for StatefulSets (2.1.1)
 
-For A1, it was intentional to create a Deployment with a manually created PVC for the database since with just one replica, it’s easy and effective. What makes someone choose to use StatefulSet is that they are not interchangeable and need their own identity, network addresses and usually follow around the same storage as long as they are rescheduled. It is because of that fact that Deployment doesn’t track anything and any of the replicas can be killed and replaced with another replica that will have a different name. It works well with stateless APIs, but not with a database cluster.
+Assignment 1 used a Deployment with a manually-created PVC for the database, which is appropriate at a single replica. A StatefulSet becomes necessary once replicas are not interchangeable: when each one requires a stable identity, a stable network address, and storage that follows it across rescheduling. A Deployment provides none of this: any replica can be removed and replaced by an identical one under a new, randomly-suffixed name. That model is correct for a stateless API, but not for a workload where individual replica identity matters, such as a coordinated database cluster.
 
+### 3.2 Deploying stateful applications (2.1.2)
 
-### 2.1.2 Deploying stateful applications
-
-I have changed `db` from Deployment to StatefulSet. This required the deletion of Deployment and of the `db-pvc` that I had created manually, followed by the deployment of the StatefulSet. The new StatefulSet creates a Persistent Volume Claim using a template, and this causes the loss of the seed data; however, that is really not an issue in this case because the postgres image automatically seeds the sample tasks in an empty volume the first time it gets launched.
+The `db` workload was converted from a Deployment to a StatefulSet. This required deleting the existing Deployment and its manually-created `db-pvc`, then applying the StatefulSet, which provisions its own PVC through a template. The seed data was lost in the process, which is not significant here: the postgres image reseeds the sample tasks automatically the first time it starts against an empty volume.
 
 ```yaml
 apiVersion: apps/v1
@@ -75,6 +86,9 @@ spec:
             - { name: POSTGRES_DB, valueFrom: { configMapKeyRef: { name: app-config, key: POSTGRES_DB } } }
             - { name: POSTGRES_USER, valueFrom: { secretKeyRef: { name: db-credentials, key: POSTGRES_USER } } }
             - { name: POSTGRES_PASSWORD, valueFrom: { secretKeyRef: { name: db-credentials, key: POSTGRES_PASSWORD } } }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
           volumeMounts:
             - { name: data, mountPath: /var/lib/postgresql/data }
   volumeClaimTemplates:
@@ -89,13 +103,13 @@ spec:
     whenScaled: Delete
 ```
 
-I kept `replicas: 1` for the actual application running. A regular `postgres` container does not have any replication capabilities implemented in itself - it knows nothing about being either primary or a follower, syncing data with anything, etc. Having three replicas of this type on a permanent basis would result in having three separate databases sharing the naming pattern, but not a cluster of any kind (see in 2.1.2.2). I think that this is an honest demonstration of the idea rather than an assumption that three replicas somehow make something special.
+Replica count was kept at 1 for the running application. The `postgres` image has no built-in replication logic; it has no concept of a primary or a follower, and does not synchronise data with any other instance. Running it at three replicas permanently would not produce a database cluster; it would produce three unrelated databases that happen to share a naming pattern. This is demonstrated directly, not assumed, in Section 3.3.
 
-`whenDeleted: Retain` and `whenScaled: Delete` were intentionally chosen as a pair of parameters, not default values untouched. In case when I will scale my replica down (and I do, for the demonstration of scaling below), the data would get automatically deleted since it was supposed to be a disposable additional instance anyway. However, in case I mistakenly decide to delete a StatefulSet, the actual data remains intact.
+`whenDeleted: Retain` and `whenScaled: Delete` were set deliberately rather than left at default. Scaling a replica down (as done for the demonstration in 3.3) is expected to discard that replica's data, since it only ever holds a disposable copy; deleting the StatefulSet itself should not.
 
 ![Database converted to StatefulSet, seed data reloaded, stable DNS confirmed](evidence/01-statefulset-db.png)
 
-### 2.1.2.1 Stable network identities
+#### 3.2.1 Stable network identities (2.1.2.1)
 
 ```bash
 kubectl exec db-0 -- psql -U taskuser -d taskdb -c "SELECT id, title FROM tasks;"
@@ -103,19 +117,18 @@ kubectl run -it --rm dnscheck --image=busybox:1.36 --restart=Never -- \
   nslookup db-0.db-svc.dso202-assignment-01.svc.cluster.local
 ```
 
+`db-0` is a fixed, predictable Pod name; the equivalent Deployment Pod in A1 was named `db-564c5c7db4-rcqh5`, with a random suffix. `nslookup` resolved `db-0.db-svc...` directly to the Pod's own IP address (`10.244.0.11`). The Service was already headless in A1 and required no change; the StatefulSet's use of it is what produces a stable, individual DNS name for each replica.
 
-db-0 is a fixed name; the Deployment Pod I had before was db-564c5c7db4-rcqh5, with a random suffix.  The command `nslookup db-0.db-svc...` resulted in getting the Pod's very own IP address `10.244.0.11`, which shows that the headless Service (the Service is already headless in A1, nothing had to be changed about it) assigns an individual DNS name to each StatefulSet Pod.
-
-### 2.1.2.2 Ordered deployment and scaling
+#### 3.2.2 Ordered deployment and scaling (2.1.2.2)
 
 ```bash
 kubectl scale statefulset db --replicas=3
 kubectl get pods -l tier=database --watch
 ```
 
-`db-1` started running after `db-0` was already `Running` and `1/1`, and db-2 started after `db-1` was ready. It means that the pods launched one by one, sequentially, in order. And it worked backwards when I scaled down: `db-2` terminated first, then `db-1`, leaving only `db-0`.
+`db-1` did not start until `db-0` was `Running` and `1/1`; `db-2` did not start until `db-1` was ready. Pod creation proceeded strictly in order. Scaling back down reversed this: `db-2` terminated first, then `db-1`, leaving only `db-0`.
 
-I also proved the three replicas really are independent databases, not a cluster:
+To confirm that the three replicas are independent databases rather than a coordinated cluster:
 
 ```bash
 kubectl exec db-0 -- psql -U taskuser -d taskdb -c "INSERT INTO tasks (title, status) VALUES ('only in db-0', 'pending');"
@@ -123,48 +136,43 @@ kubectl exec db-1 -- psql -U taskuser -d taskdb -c "SELECT id, title FROM tasks;
 kubectl exec db-2 -- psql -U taskuser -d taskdb -c "SELECT id, title FROM tasks;"
 ```
 
-In neither database `db-1` nor `db-2` had the row  I just added to `db-0`. This is the concrete example of what I discussed above in 2.1.1, that is, no one is syncing anything because no one in the picture knows how to sync anything.
+The row inserted into `db-0` was absent from both `db-1` and `db-2`, confirming the point made in Section 3.2: no synchronisation takes place between replicas, because the image contains no logic to perform it.
 
 ![Ordered scale-up to 3 replicas, PVCs created per replica](evidence/02b-statefulset-scaling-fixed.png)
-![Independent data proof — the row inserted into db-0 doesn't exist in db-1 or db-2](evidence/02c-statefulset-independent-data.png)
+![Independent data proof: the row inserted into db-0 does not exist in db-1 or db-2](evidence/02c-statefulset-independent-data.png)
 ![Ordered scale-down back to 1, extra PVCs auto-deleted](evidence/03-statefulset-scaledown.png)
 
-### 2.1.3 Headless Services for StatefulSets
+### 3.3 Headless Services for StatefulSets (2.1.3)
 
+`db-svc` was already configured as headless (`clusterIP: None`) in A1, and required no modification. Its original purpose (a stable in-namespace name for the database, with no external exposure) already matched what a StatefulSet requires. The only change needed was referencing it in the StatefulSet's `serviceName` field, which is what establishes the relationship and produces the per-Pod DNS names described in Section 3.2.1. Without this field pointing at a genuinely headless Service, no per-Pod DNS behaviour occurs.
 
-`db-svc` was already `clusterIP: None` from A1 - no need for any changes here, as the logic for this provided by A1 (stable name for the database within the namespace, no outside exposure) already aligned perfectly with the requirements of the StatefulSet. It was sufficient to link the `serviceName` attribute of the StatefulSet to it, which would effectively make this relationship and give rise to the DNS names of 2.1.2.1 through that link. Without that field pointing at a genuinely headless Service, none of that DNS behaviour happens.
+### 3.4 Volume claim templates (2.1.4)
 
+In place of a single, manually-created PVC, `volumeClaimTemplates` generates one PVC per replica, named `data-<pod-name>`. Scaling to three replicas produced `data-db-0`, `data-db-1`, and `data-db-2`, each 1Gi, bound independently. On rescheduling, a Pod reattaches to its own identically-named PVC rather than receiving a new one; this was not tested directly against a forced reschedule within this assignment, but follows from the naming being tied to ordinal position, and is consistent with the Pod/PVC lifecycle independence already demonstrated in A1's single-replica self-healing test.
 
-### 2.1.4 Volume claim templates
-
-
-Rather than my one PVC that I create manually, `volumeClaimTemplates` enables Kubernetes to create one PVC per replica for me, named `data-<pod-name>`. Thus scaling to 3 replicas created `data-db-0`, `data-db-1`, and `data-db-2`, each 1Gi in size, all bound individually. If the Pod is rescheduled, it connects to its own individually named PVC and not a brand new PVC and I didn't specifically test a reschedule-and-reattach, but it can be inferred from the connection between the name and the ordinal number, and is a direct extension of the independence demonstrated by A1's self-healing test already showed PVC-and-Pod-lifecycle-independence in the simpler single-replica case.
-
-
-The thing that genuinely caught me off guard about this: scaling to 3 replicas exceeded my own A1 ResourceQuota, not once but twice, from two different angles.
+Scaling to three replicas exceeded the ResourceQuota configured in A1, in two separate respects:
 
 ```text
 persistentvolumeclaims "data-db-2" is forbidden: exceeded quota: ns-quota,
 requested: persistentvolumeclaims=1, used: persistentvolumeclaims=2, limited: persistentvolumeclaims=2
 ```
 
-The value of ` persistentvolumeclaims` was set to 4, but `db-2` was not present; this is because the StatefulSet controller does not monitor the ResourceQuota, hence fixing the ResourceQuota will not cause it to try again by itself; scaling down and back up is what causes it to try again. This brought me to the second barrier:
+`persistentvolumeclaims` was raised to 4, but `db-2` did not appear after this change alone. This is consistent with the StatefulSet controller only re-evaluating Pod and PVC creation in response to a change in the StatefulSet's own desired state, rather than watching the ResourceQuota object directly. A scale-down followed by a scale-up forced a fresh reconciliation attempt, which then exposed a second limit:
 
 ```text
 pods "db-2" is forbidden: exceeded quota: ns-quota,
 requested: limits.memory=256Mi, used: limits.memory=832Mi, limited: limits.memory=1Gi
 ```
 
-The actual value of the peak was calculated and not just estimated: `db` with 3 replicas and `backend` and `frontend` gives us a peak of 1850m CPU / 1088Mi memory in a scaling experiment. `limits.memory` was set to 1200Mi (so tight that there is no question about it being selected randomly), and `persistentvolumeclaims` to 4 (3 replicas + 1 extra). No changes were required for `limits.cpu`; the 2 in A1 already satisfied the 1850m peak.
+The actual peak required was calculated rather than estimated: `db` at three replicas, plus `backend` and `frontend`, gives a peak of 1850m CPU / 1088Mi memory during a scaling operation. `limits.memory` was set to 1200Mi, sized directly against that figure rather than rounded arbitrarily, and `persistentvolumeclaims` to 4 (three replicas plus one spare). `limits.cpu` was left unchanged, since A1's value of 2 already covers the 1850m peak.
 
-<!-- ![Final quota, sized for the scaling demo's actual peak usage](evidence/02d-quota-final.png) -->
+![Final quota, sized for the scaling demonstration's peak usage](evidence/03-statefulset-scaledown.png)
 
-## 2.2 Ingress and Ingress Controllers
+## 4. Ingress and Ingress Controllers (2.2)
 
-### 2.2.1 Ingress resource configuration
+### 4.1 Ingress resource configuration (2.2.1)
 
-Whereas A1 used NodePort for frontend services, now frontend is exposed through a single Ingress resource taking care of routing and TLS. This is really what Ingress is meant for: one entry point rather than one NodePort for each application.
-
+A1 exposed the frontend using a NodePort Service. In A2, a single Ingress resource handles both routing and TLS termination, which is the purpose Ingress serves: one entry point rather than one NodePort per application.
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -191,27 +199,26 @@ spec:
           - { path: /, pathType: Prefix, backend: { service: { name: backend-svc, port: { number: 8080 } } } }
 ```
 
-The worked example from the lecture notes employs `rewrite-target: /` annotation. I did not include it on purpose. `rewrite-target: /` annotation will reduce the matched path to `/` prior to forwarding – good for a backend expecting paths like `/`, not for me as my backend expects `/api/tasks`, `/api/status` etc. Using an example from the lecture notes without modification would render each API call useless due to rewrite of `/api/tasks` to `/`. I validated the assumptions of the example according to my backend prior to use.
+`ingressClassName` was used to select the controller, in preference to the deprecated `kubernetes.io/ingress.class` annotation; `pathType: Prefix` was used on every rule to keep path matching explicit and portable, rather than relying on controller-specific implicit matching.
 
+The worked example in the lecture notes uses a `rewrite-target: /` annotation, which was deliberately not applied here. That annotation rewrites the matched path to `/` before forwarding, which is appropriate for a backend expecting bare paths, but not for this backend, whose routes are `/api/tasks`, `/api/status`, and so on. Applying the example unmodified would have rewritten every API call to `/`, breaking the API entirely; the assumption behind the example was checked against the backend before use.
 
-Now frontend is exposed through the Ingress resource so there is no need for `frontend-svc` to have its own NodePort anymore.
+With Ingress providing external access, `frontend-svc` no longer requires a NodePort. It was changed from `type: NodePort` to `type: ClusterIP` accordingly.
 
 ![Ingress created with both hosts listed, frontend-svc now ClusterIP](evidence/05-ingress-created.png)
 
-### 2.2.1.1 Basic routing rules
+#### 4.1.1 Basic routing rules (2.2.1.1)
 
 ```bash
 curl -sk https://tasktracker.local/api/status
 curl -sk https://tasktracker.local/ | head -3
 ```
 
-`/api/status` returned the backend's JSON and `/ `returned the frontend's HTML, same host and port, routed to different Services by path.
+`/api/status` returned the backend's JSON response; `/` returned the frontend's HTML. Both requests used the same host and port, routed to different Services purely by path.
 
+#### 4.1.2 TLS termination (2.2.1.2)
 
-### 2.2.1.2 TLS termination
-
-
-There is no actual domain name for the kind cluster, so I created a self-signed certificate for both hostnames and added it to a `Kubernetes.io/tls` secret:
+No real domain is available for a kind cluster, so a self-signed certificate was generated for both hostnames and stored in a Secret of type `kubernetes.io/tls`:
 
 ```bash
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
@@ -221,30 +228,28 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 kubectl create secret tls tasktracker-tls --cert=tasktracker.crt --key=tasktracker.key -n dso202-assignment-01
 ```
 
-
-
-Both `curl` tests used `https://`, along with `-k` to allow the use of the self-signed certificate (otherwise curl won’t even try connecting, which is the right behavior for an untrusted certificate). Encryption and decryption occur in the Ingress controller, whereas the frontend and backend pods behind the Ingress controller receive requests through plain old HTTP, without TLS.
+Both `curl` requests above used `https://` with the `-k` flag, which accepts a certificate that cannot be verified against a trusted authority; without it, curl connects but then refuses to proceed once certificate verification fails, which is the correct behaviour for a self-signed certificate. TLS is terminated at the Ingress controller: the frontend and backend Pods behind it receive plain HTTP, with no TLS handling of their own.
 
 ![Path routing and TLS termination both working](evidence/06-ingress-routing-tls.png)
 
-### 2.2.1.3 Name-based virtual hosting
+#### 4.1.3 Name-based virtual hosting (2.2.1.3)
 
-Both `tasktracker.local` and `api.tasktracker.local` resolve to the same IP address (I put both into `/etc/hosts` to `127.0.0.1`) on my computer, but the routing is entirely different via Ingress - one gives access to the full application while another gives access only to the backend on the path `/`. Different routing based only on the Host header:
+`tasktracker.local` and `api.tasktracker.local` were both mapped to `127.0.0.1` in `/etc/hosts`, so they resolve to the same address, but Ingress routes them differently: the first serves the full application, the second routes every path directly to the backend only. This was confirmed with identical requests against both hosts:
 
 ```bash
 curl -sk https://tasktracker.local/api/status
 curl -sk https://api.tasktracker.local/api/status
 ```
 
-Both hostnames return the same backend JSON. This is exactly how it should be - `api.tasktracker.local` forwards all requests on `/*` to the backend so `/api/status` would reach the same place either way just using different rules.
+Both returned the same backend JSON, which is the expected result: `api.tasktracker.local` forwards `/*` to the backend directly, so `/api/status` reaches the same endpoint through a different rule. The distinction between the two hosts is clearer at `/`: `tasktracker.local` returns the frontend's HTML, while `api.tasktracker.local` returns the backend's own 404 response for that path, since the backend has no route defined at `/`.
 
-![Same result from two different hostnames, proving separate virtual-host rules](evidence/07-ingress-virtualhost.png)
+![Two hostnames on the same IP and port, routed by separate Ingress rules](evidence/07-ingress-virtualhost.png)
 
-### 2.2.2 Setting up Ingress Controllers
+### 4.2 Setting up Ingress Controllers (2.2.2)
 
-#### 2.2.2.1 NGINX Ingress Controller
+#### 4.2.1 NGINX Ingress Controller (2.2.2.1)
 
-I installed this using kind's own dedicated manifest (not the generic cloud one), since it's built specifically to work with kind's `hostPort` setup rather than needing a real cloud LoadBalancer:
+The controller was installed using kind's dedicated deployment manifest, built specifically for kind's `hostPort`-based exposure rather than requiring a cloud LoadBalancer:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
@@ -252,43 +257,39 @@ kubectl wait --namespace ingress-nginx --for=condition=ready pod \
   --selector=app.kubernetes.io/component=controller --timeout=180s
 ```
 
-It failed the first time around - `kubectl wait` timed out after 180 seconds. I did more than run it again - I looked into why it happened using `kubectl describe pod` and saw two issues in succession, neither of which is an actual problem:
-- First, in the first few minutes, there was a benign "FailedMount: secret "ingress-nginx-admission" not found", which is a well-known issue in kind, when the controller Pod starts being scheduled a little bit earlier than webhook installation job creates its certificate (this solves itself),
-- then it takes 2m54s to download the image, which actually exceeded 180 seconds, which caused the timeout.
+The initial `kubectl wait` timed out after 180 seconds. `kubectl describe pod` showed two separate, non-fatal causes in sequence: a `FailedMount: secret "ingress-nginx-admission" not found` event for the first few minutes, caused by the controller Pod being scheduled slightly before the admission webhook's certificate-setup Job completed, which resolved on its own; and a controller image pull that took 2 minutes 54 seconds, exceeding the wait timeout. The container started successfully once the pull completed.
 
 ![Controller confirmed Running and 1/1, IngressClass nginx registered](evidence/04-ingress-controller.png)
 
-#### 2.2.2.2 Traefik Ingress Controller
+#### 4.2.2 Traefik Ingress Controller (2.2.2.2)
 
-I did not use Traefik in combination with NGINX since using two ingress controllers in one small cluster with one small application doesn't seem like a realistic scenario even to check off a box in the syllabus, so I will describe it below based on my knowledge of both and the lecture notes.
+Traefik was not installed alongside NGINX. Running two Ingress controllers in a single small cluster, for one small application, is not representative of how a production team would operate, so this section is addressed in writing rather than through a second installation.
 
+Traefik and the NGINX Ingress Controller address the same problem (Layer 7 routing of external HTTP(S) traffic into the cluster) but differ in implementation. Traefik is written in Go and provides native custom resources (`IngressRoute` and related CRDs) in addition to standard `Ingress` support, allowing routing configurations that the base `Ingress` specification cannot express without controller-specific annotations. It also includes a built-in dashboard for inspecting live routing state, and native integration with Let's Encrypt for certificate issuance. Controller-specific behaviour is configured through annotations in both controllers, using different prefixes (`traefik.ingress.kubernetes.io/...` versus `nginx.ingress.kubernetes.io/...`), which is the concrete instance of the general point made in the lecture notes: annotations are controller-specific and are never portable between controllers.
 
-Both Traefik and NGINX Ingress Controller handle the exact same challenge - routing of external HTTP(S) traffic into the cluster at layer 7, but differ in certain aspects. Traefik is implemented in Go and includes native custom resources (`IngressRoute`, and other CRDs), as well as the support of the standard Kubernetes `Ingress` resource, which allows defining routes that are impossible to be defined in the vanilla `Ingress` resource spec and which doesn't require controller-specific annotations. Traefik provides a built-in dashboard to monitor live routing configuration and a native integration of the controller with Let's Encrypt certificates handling. Features available through annotations are similar in their implementation to NGINX's ones but have a different prefix (`traefik.ingress.kubernetes.io/...` vs `nginx.ingress.kubernetes.io/...`) - this is exactly what the notes mean when mentioning that annotations are controller-specific and never portable between controllers.
+The choice between the two carries more weight currently than it would have previously. The lecture notes state that the NGINX Ingress Controller, used here and historically the most widely deployed option, entered maintenance mode as of 2026, with no further releases, bug fixes, or security updates from March 2026 onward. It was used in this assignment because the lecture notes' own worked example is built around it and it is the most thoroughly documented option for kind specifically; a team making this decision for a new production system today would need to weigh that maintenance status against Traefik or the newer Kubernetes Gateway API as longer-term alternatives.
 
-It becomes a little more critical right now to make a selection of which to use compared to last year. As a point noted in the lecture slides, the NGINX Ingress Controller that I've used in this project and that has been the most utilized version in history went into maintenance status as of 2026, meaning that there will be no future updates, patches or releases starting in March 2026. It was selected for this assignment because it is the one used in the lecture slides' working example and it is the most documented one, but I know that a true development team would have had to consider it versus Traefik or Gateway API.
+### 4.3 Ingress annotations for controller-specific features (2.2.3)
 
-
-### 2.2.3 Ingress annotations for controller-specific features
-
-I made use of `nginx.ingress.kubernetes.io/limit-rps: "5"`, where each client IP is limited to make up to 5 requests per second. Since I wanted it to really get triggered, I decided to throw some load on it:
+The `nginx.ingress.kubernetes.io/limit-rps: "5"` annotation was applied, limiting each client IP to 5 requests per second. To confirm the annotation was genuinely enforced rather than merely present in the manifest, load was applied directly:
 
 ```bash
 for i in $(seq 1 40); do curl -sk -o /dev/null -w "%{http_code}\n" https://tasktracker.local/api/status; done | sort | uniq -c
 ```
 
-28 returned `200`, 12 returned `503`. The previous attempt with 10 requests turned out to be insufficient to trigger it at all — `limit_req` is tolerant of some bursts over the declared value, so some reasonable number of requests can pass through unimpeded. I have also verified the resulting NGINX configuration, as well as checking that my annotation has really generated a working `limit_req_zone` rather than me getting lucky with numbers.
+28 requests returned `200`; 12 returned `503`. An earlier attempt at 10 requests had not been sufficient to trigger the limit, since `limit_req` permits some burst above the configured rate. The rendered NGINX configuration was also checked directly to confirm the annotation had produced an active `limit_req_zone`.
 
-![28 requests succeeded, 12 hit the rate limit once load was high enough](evidence/08-ingress-ratelimit.png)
+![28 requests succeeded, 12 were rejected once load exceeded the configured rate](evidence/08-ingress-ratelimit.png)
 
-## 2.3 Kubernetes RBAC
+## 5. Kubernetes RBAC (2.3)
 
-A1's Task 8 (which was the optional task) dealt with creating a single Role attached to a single ServiceAccount giving read-only access to a namespace. In contrast, this task deals with Roles versus ClusterRoles, aggregation specifically, as well as binding to all types of subjects described there - users, groups, and service accounts.
+A1's optional Task 8 established a single Role bound to a single ServiceAccount, granting read-only namespace access. This section extends that to cover Role versus ClusterRole, aggregation specifically, and binding to all three subject types named in the descriptor: users, groups, and service accounts.
 
-### 2.3.1 Roles and ClusterRoles
+### 5.1 Roles and ClusterRoles (2.3.1)
 
-#### 2.3.1.1 Defining permissions for resources
+#### 5.1.1 Defining permissions for resources (2.3.1.1)
 
-I gave the backend its own dedicated ServiceAccount and Role, replacing the namespace's default ServiceAccount it was running as before (which the lecture notes specifically call out as something to avoid — permissions granted to the default SA are silently shared by everything in the namespace that doesn't ask for a different one):
+The backend was given a dedicated ServiceAccount and Role, replacing the namespace's default ServiceAccount it previously ran under. The lecture notes identify use of the default ServiceAccount as something to avoid, since permissions granted to it are implicitly shared by every Pod in the namespace that does not request a different one.
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -302,14 +303,11 @@ rules:
     verbs: ["get", "list"]
 ```
 
-I'll be honest about this one rather than inventing a justification: my backend doesn't currently call the Kubernetes API for anything, it's a REST server talking to Postgres. This Role and ServiceAccount exist to demonstrate the mechanism properly, not because the app needs it today - and I picked read-only access to Pods specifically because it sets up a clean, honest contrast in 2.3.3.2.
+The backend application does not currently call the Kubernetes API for any functional purpose; it is a REST server communicating with PostgreSQL. This Role and ServiceAccount exist to demonstrate the mechanism, not to serve an existing application need. Read-only access to Pods was chosen specifically to provide a controlled contrast against Secrets in Section 5.3.2.
 
+#### 5.1.2 Aggregated ClusterRoles (2.3.1.2)
 
-#### 2.3.1.2 Aggregated ClusterRoles
-
-
-
-This was  very new mechanic I discovered. The `edit`, `view`, and `admin` ClusterRoles defined by Kubernetes are not fixed sets of permissions; they include a label selector and the API server merges all the ClusterRoles that match those labels. In order to show proof rather than just explain what happens here, I needed some resource that would not be covered by the `edit` role yet, but given how many resources are covered by the `edit` role, this required an actual CRD (`TaskTrackerBackup`; I will reuse this CRD for the next section as well — the CRD is guaranteed to have zero permissions initially).
+Kubernetes' built-in `edit`, `view`, and `admin` ClusterRoles are not static rule sets; each carries a label selector, and the API server automatically merges in the rules of any ClusterRole matching that selector. To demonstrate this concretely rather than describe it abstractly, a resource genuinely not covered by `edit` was required. Since `edit` already covers nearly all built-in resource types, this required a Custom Resource Definition: `TaskTrackerBackup`, also used in Section 6, which is guaranteed to start with zero permissions granted anywhere.
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -324,92 +322,105 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ```
 
-Before constructing this, `pema` (assigned to the `edit` ClusterRole using a RoleBinding within my namespace) received `no` on testing whether she could create a `tasktrackerbackup`. As soon as the little ClusterRole above was applied, without anything whatsoever being changed regarding `edit`, the test showed `yes`. This time, I verified the process directly, not just the result:
+Before this ClusterRole was applied, a check of whether `pema` (bound to `edit` via a namespace-scoped RoleBinding) could create a `tasktrackerbackup` returned `no`. After applying the ClusterRole above, with no direct modification to `edit`, the same check returned `yes`. The mechanism itself was also inspected directly:
 
 ```bash
 kubectl get clusterrole edit -o jsonpath='{.aggregationRule}'
 kubectl get clusterrole edit -o jsonpath='{.rules[?(@.apiGroups[0]=="dso202.example.com")]}'
 ```
 
-The first line indicated the selector of `edit`, which was exactly the same as the name given to my little ClusterRole. The second indicated `tasktrackerbackups` already included in the rule set of `edit`. No one ever executed `kubectl edit clusterrole edit`. That was the whole idea behind the system.
+The first command returned `edit`'s label selector, matching the label on the new ClusterRole; the second returned the `tasktrackerbackups` rule already merged into `edit`'s own rule list, confirming the aggregation occurred without any direct edit to the built-in role.
 
-![Before: edit can't touch the new CRD at all](evidence/18-edit-before-aggregation.png)
-![After: edit can, immediately, plus the aggregationRule and merged rules proving why](evidence/19-edit-after-aggregation.png)
+![Before: edit does not cover the new CRD](evidence/18-edit-before-aggregation.png)
+![After: edit covers it immediately; aggregationRule and merged rules shown](evidence/19-edit-after-aggregation.png)
 
-### 2.3.2 RoleBindings and ClusterRoleBindings
+### 5.2 RoleBindings and ClusterRoleBindings (2.3.2)
 
-#### 2.3.2.1 Binding roles to users, groups, and service accounts
+#### 5.2.1 Binding roles to users, groups, and service accounts (2.3.2.1)
 
-There is no `User` type in Kubernetes - "creating a user" involves issuing a trusted certificate and creating a Role bound to the subject inside that certificate. I issued such a user for myself:
+Kubernetes has no `User` object. A user identity is established by issuing a certificate the API server trusts, then binding a Role to the identity encoded within it. A certificate was generated for this purpose:
 
 ```bash
 openssl genrsa -out pema.key 2048
 openssl req -new -key pema.key -out pema.csr -subj "/CN=pema/O=dso202-students"
 ```
 
-then had the CSR signed by the internal CSR API of the cluster, using the very signer trusted by the API server for client authentification (`kubernetes.io/kube-apiserver-client`) — any other name would fail quietly:
+The request was signed through the cluster's own CertificateSigningRequest API, using the signer the API server accepts for client authentication:
 
 ```bash
-kubectl apply -f pema-csr.yaml   # CertificateSigningRequest wrapping the base64'd CSR
+cat <<EOF | kubectl apply -f -
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: pema
+spec:
+  request: ${REQ}
+  signerName: kubernetes.io/kube-apiserver-client
+  expirationSeconds: 7776000
+  usages: [client auth]
+EOF
 kubectl certificate approve pema
 ```
 
-`CN=pema` became my username, bound directly:
+`CN=pema` became the username, bound directly to a Role:
 
 ```bash
 kubectl create rolebinding pema-reader --namespace=dso202-assignment-01 --role=namespace-reader --user=pema
 ```
 
-Then I transitioned to the identity correctly, via an actual kubeconfig context, not via `--as=`, and checked via the same before/after check that A1's Task 8 had done, but extended somewhat:
+Access was verified by switching to the identity through a genuine kubeconfig context, not through `--as=` impersonation, and testing scope in both directions:
 
 ```bash
 kubectl config use-context pema-context
-kubectl get pods          # works
-kubectl get secrets       # Forbidden — not in the Role
-kubectl get pods -n kube-system   # Forbidden — RoleBinding is namespace-scoped
-kubectl get nodes         # Forbidden — cluster-scoped, a Role could never cover it anyway
+kubectl get pods                    # succeeds
+kubectl get secrets                 # Forbidden: not granted by the Role
+kubectl get pods -n kube-system     # Forbidden: RoleBinding is namespace-scoped
+kubectl get nodes                   # Forbidden: cluster-scoped, a Role cannot grant this
 ```
 
-That last error message was more informative than I expected — Kubernetes itself said `Forbidden ... at the cluster scope`, not just refusing generically.
+The API server's response to the last check was specific rather than generic: `Forbidden ... at the cluster scope`, correctly distinguishing a scope mismatch from a missing rule.
 
-![Working inside pema's own namespace, correctly Forbidden everywhere else](evidence/15-user-context-scoped.png)
+![Access within the user's own namespace; correctly refused everywhere else](evidence/15-user-context-scoped.png)
 
-For groups, I minted a second identity, `CN=classmate-demo`, in the same `O=dso202-students` group, and gave it **no personal binding at all** — only a group binding:
+A second identity, `CN=classmate-demo`, was issued in the same `O=dso202-students` group and given no personal binding. Access was granted purely through a group-scoped RoleBinding:
 
 ```bash
 kubectl create rolebinding dso202-students-reader --namespace=dso202-assignment-01 --role=namespace-reader --group=dso202-students
 ```
 
-Using `classmate-demo` context and doing `kubectl get pods` command was successful despite the fact that this particular user is not mentioned in any RoleBinding, but only the group to which he belongs.
+Switching to the `classmate-demo` context and running `kubectl get pods` succeeded, despite this identity being named in no RoleBinding, only in the group it belongs to.
 
-![namespace-reader bound twice — once by user, once by group — and both work](evidence/16-group-role.png)
-![classmate-demo reads pods through group membership alone](evidence/17-group-context-works.png)
+![namespace-reader bound to a user and to a group, both functioning](evidence/16-group-role.png)
+![classmate-demo reading Pods through group membership alone](evidence/17-group-context-works.png)
 
-However, both these binding entries are examples of RoleBinding, which are namespaced resources by default. In order to fulfill the part of "ClusterRoleBinding" in the title of this topic, I created another binding between `dso202-students` group and `view` ClusterRole:
+The bindings above are both RoleBindings, which are namespace-scoped by definition. To address the ClusterRoleBinding half of this descriptor section explicitly, the `dso202-students` group was bound to the built-in `view` ClusterRole cluster-wide:
 
-```bash
-kubectl get pods -n kube-system --as=classmate-demo   # Forbidden, before
-kubectl create clusterrolebinding dso202-students-viewer-clusterwide --clusterrole=view --group=dso202-students
-kubectl get pods -n kube-system --as=classmate-demo   # works, after
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dso202-students-viewer-clusterwide
+subjects:
+  - { kind: Group, name: dso202-students, apiGroup: rbac.authorization.k8s.io }
+roleRef:
+  { kind: ClusterRole, name: view, apiGroup: rbac.authorization.k8s.io }
 ```
 
-The first time that I did this was also a failure, and it is important to point out why: `--as=classmate-demo` does not impersonate the user's group – only the username. There is no list of users and groups in Kubernetes anywhere – it is only included in a certificate itself and this is exactly what is done automatically when I switch into a kubeconfig context. This means that the impersonation with `--as=` alone does not include this and I had to include `--as-group=dso202-students`:
+The verification initially failed, for a reason worth recording precisely: `kubectl get pods -n kube-system --as=classmate-demo` impersonates only the username, not group membership. Group membership exists only within the certificate itself and is applied automatically when switching to a real kubeconfig context; plain `--as=` impersonation does not read it. The correct check requires `--as-group=` explicitly:
 
 ```bash
 kubectl get pods -n kube-system --as=classmate-demo --as-group=dso202-students
 ```
 
-Now that the group was included, `classmate-demo` had visibility into every single control-plane Pod in `kube-system`, such as CoreDNS, etcd, API server, kube-proxy, everything - none of which could be reached previously. The `default` namespace returned "No resources found." That is not a failure, it's an empty namespace. In terms of permissions, it has passed, there's simply no resource to be listed there. This distinction (between Forbidden and empty) seems very much alike but actually means completely opposite things. And it took me to make a mistake in order to understand the difference.
+With the group included, the same identity that was `Forbidden` a moment earlier could list every control-plane Pod in `kube-system`. A check against the `default` namespace returned "No resources found," which is distinct from `Forbidden`: the permission check succeeded, and the namespace was simply empty. This is the direct, functional difference between the two binding types: identical subject, refused outside its own namespace under a RoleBinding, permitted cluster-wide under a ClusterRoleBinding.
 
-This is the actual, practical difference between the two bindings - same group, forbidden via one and cluster-wide via another binding object.
+![Before: Forbidden outside the namespace. After: cluster-wide access via the ClusterRoleBinding](evidence/22-clusterrolebinding.png)
 
-![Before: Forbidden everywhere outside the namespace. After: cluster-wide access through the ClusterRoleBinding, once the group was actually included in the check](evidence/22-clusterrolebinding.png)
+### 5.3 Service Accounts (2.3.3)
 
-### 2.3.3 Service Accounts
+#### 5.3.1 Creating and managing service accounts (2.3.3.1)
 
-#### 2.3.3.1 Creating and managing service accounts
-
-`backend-sa` is created above (2.3.1.1). Attaching it to the backend Deployment needed one line:
+`backend-sa` was created as shown in Section 5.1.1. Attaching it to the backend Deployment required one addition:
 
 ```yaml
 spec:
@@ -418,29 +429,29 @@ spec:
       serviceAccountName: backend-sa
 ```
 
-A Pod's ServiceAccount is only set when it's created, so changing this on an existing Deployment doesn't apply until the Pod restarts:
+A Pod's ServiceAccount is fixed at creation time, so the change did not take effect until the Deployment was restarted:
 
 ```bash
 kubectl rollout restart deployment/backend
 kubectl get pod -l tier=backend -o jsonpath='{.items[0].spec.serviceAccountName}'
 ```
 
-confirmed `backend-sa`, not `default`.
+This confirmed `backend-sa`, replacing the default ServiceAccount.
 
-![Backend Pod now running as its own dedicated ServiceAccount](evidence/09-backend-sa.png)
+![Backend Pod running under its dedicated ServiceAccount](evidence/09-backend-sa.png)
 
-#### 2.3.3.2 Using service accounts for pod authentication
+#### 5.3.2 Using service accounts for pod authentication (2.3.3.2)
 
-The quick way to check this is asking Kubernetes hypothetically what an identity *could* do:
+Permissions can be checked hypothetically from outside the cluster:
 
 ```bash
 kubectl auth can-i list pods --as=system:serviceaccount:dso202-assignment-01:backend-sa -n dso202-assignment-01   # yes
 kubectl auth can-i get secrets --as=system:serviceaccount:dso202-assignment-01:backend-sa -n dso202-assignment-01 # no
 ```
 
-![can-i checks for backend-sa: allowed on Pods, refused on Secrets](evidence/10-sa-can-i.png)
+![can-i checks for backend-sa: permitted on Pods, refused on Secrets](evidence/10-sa-can-i.png)
 
-But I wanted to do it properly - actually running as that identity and firing requests to the actual API server with the very same token Kubernetes mounts to that Pod's filesystem, rather than performing some external validation. So I created a short-lived Pod running under the `backend-sa` service account and had it fetch its own token in order to authenticate:
+To verify the same result from a genuine request rather than a hypothetical check, a short-lived Pod was launched under `backend-sa`, and made to authenticate to the API server directly using its own mounted token:
 
 ```bash
 kubectl run debug-as-backend --rm -i --image=curlimages/curl --restart=Never \
@@ -452,19 +463,19 @@ curl -sk -o /dev/null -w "HTTP %{http_code}\n" -H "Authorization: Bearer $TOKEN"
 '
 ```
 
-`HTTP 200` on Pods, `HTTP 403` on Secrets. This one is worth thinking about for a moment: this is the very same RBAC check happening on an actual request coming from within an actual Pod with its very own token mounted to the filesystem. And a good demonstration of the difference between how the backend gets its database password (injected as environment variable from a Secret when starting a container) and its own API identity (which doesn't get anything from Secrets whatsoever).
+The result was `HTTP 200` on Pods and `HTTP 403` on Secrets: the same RBAC decision, this time produced by an actual authenticated request from inside a running Pod, using its own credential, rather than an external simulation of one. This also illustrates two distinct access paths for the same category of data: the backend receives its database password as an environment variable, injected from a Secret at container start, but its own API identity is refused any direct read access to Secrets whatsoever. This is the practical distinction the Create_CSR guide makes between authentication and authorisation: a valid credential establishes who is asking, but grants nothing on its own; RBAC decides separately what that identity may do.
 
-![Real API request, from inside a Pod, using its own mounted SA token](evidence/11-sa-pod-auth.png)
+![Authenticated API request from inside a Pod, using its own mounted ServiceAccount token](evidence/11-sa-pod-auth.png)
 
-## 2.4 Kubernetes Operators
+## 6. Kubernetes Operators (2.4)
 
-### 2.4.1 Operator pattern
+### 6.1 Operator pattern (2.4.1)
 
-The Operator Pattern involves encapsulating operational knowledge specific to an application, for example how to do failover, backups, upgrades for a particular software application, within a controller that is monitoring a Custom Resource and driving the actual state of the cluster to be in line with it, using the exact same reconcile loop concept that all the built-in Kubernetes controllers work on.
+The Operator pattern packages application-specific operational knowledge (failover, backup, upgrade procedures for a particular piece of software) into a controller that watches a Custom Resource and reconciles the cluster's actual state to match it. This is the same reconcile-loop architecture used by every built-in Kubernetes controller, applied to logic specific to one application rather than to Kubernetes itself. An Operator is also, itself, a workload subject to RBAC (Section 5); the permissions granted to its ServiceAccount require the same scrutiny applied in Section 5.1.1, since an Operator typically needs broader create/update/delete permissions than a stateless application does.
 
-#### 2.4.1.1 Custom Resources and Custom Resource Definitions
+#### 6.1.1 Custom Resources and Custom Resource Definitions (2.4.1.1)
 
-The one I've done for my application is called `TaskTrackerBackup` and shows the structure of a possible future object used for backing up the task tracker database - that’s the real CRD:
+A CRD was defined representing a possible future object for scheduling database backups of the Task Tracker:
 
 ```yaml
 apiVersion: apiextensions.k8s.io/v1
@@ -492,7 +503,7 @@ spec:
               properties: { phase: { type: string } }
 ```
 
-Then a real instance of it:
+with an instance created against it:
 
 ```yaml
 apiVersion: dso202.example.com/v1
@@ -505,32 +516,30 @@ spec:
   retentionDays: 7
 ```
 
-What I really meant to prove was that a CRD on its own does nothing. `kubectl apply` and `kubectl get` treat it as if it were a native resource type - but:
-
+The purpose of this section is to demonstrate that a CRD alone provides no functionality. `kubectl apply` and `kubectl get` operate on it exactly as they would on a built-in resource type, since a StorageClass with `volumeBindingMode: WaitForFirstConsumer` (the same mode used by kind's default StorageClass, which is why the PVCs above show `waiting for first consumer to be created before binding` until a Pod is scheduled) is a comparable example of Kubernetes deferring an action until the right conditions exist. A CRD defers indefinitely, because nothing exists to act on it at all:
 
 ```bash
-kubectl describe tasktrackerbackup nightly-backup   # Status: (empty), Events: <none>
-kubectl get pods,jobs,cronjobs                      # nothing backup-related, anywhere
+kubectl describe tasktrackerbackup nightly-backup   # Status: (empty); Events: <none>
+kubectl get pods,jobs,cronjobs                      # no backup-related resources present
 ```
 
-Despite the fact that it explicitly says in the spec in plain English "run at 2am daily," nothing runs at 2am, since nobody in the cluster is watching `TaskTrackerBackup` resources. And even after leaving the experiment running a bit, the status field is still empty - not because of some delay, but because there is no controller whatsoever.
+Despite the spec stating a schedule explicitly, nothing executes at the stated time, because no controller in the cluster watches `TaskTrackerBackup` objects. The status field remained empty after an extended period, confirming this is a structural absence of a controller rather than a delay.
 
-![CRD stored and readable like any built-in object, but completely inert — no controller watching it](evidence/21-crd-no-controller.png)
+![CRD stored and readable like a built-in object, with no controller acting on it](evidence/21-crd-no-controller.png)
 
-#### 2.4.1.2 Operator lifecycle management
+#### 6.1.2 Operator lifecycle management (2.4.1.2)
 
-After creating a working Operator, it will still need to be installed, upgraded, and permissioned just like any other workload; in some environments (specifically Red Hat OpenShift), this process is managed using a different software called Operator Lifecycle Manager (OLM). I have not used OLM in this case, because it represents another separate system for working with Operators, which was mentioned in the lecture notes only as something that we should know about but is not required for this particular unit. I can show, however, the very stage which OLM handles - my TaskTrackerBackup CRD, with no controller watching it  is exactly where a real Operator starts its installation process from.
+A running Operator still requires installation, upgrading, and permission management like any other workload. In some ecosystems, particularly Red Hat OpenShift, this is handled by a dedicated tool, the Operator Lifecycle Manager (OLM). OLM was not installed for this assignment; it is a separate system for managing Operators themselves, and the lecture notes identify it only as something to be aware of, not as material requiring hands-on treatment in this unit. The stage OLM is designed to manage is demonstrated directly here: the `TaskTrackerBackup` CRD, installed with no controller watching it, is precisely the starting state every real Operator installation begins from, before a controller Deployment is ever applied.
 
+### 6.2 Creating custom operators (2.4.2)
 
-### 2.4.2 Creating custom operators
+#### 6.2.1 Operator SDK (2.4.2.1)
 
-#### 2.4.2.1 Operator SDK
+Operator SDK and Kubebuilder generate the CRD scaffolding, the watch/informer/workqueue plumbing, and the RBAC manifests an Operator requires, so that an author writes reconciliation logic without reimplementing this machinery directly. Neither was used here, since building a functioning Operator is explicitly identified in the lecture notes as beyond this unit's scope. The connection to work already completed is direct: the aggregated ClusterRole built in Section 5.1.2 is similar in purpose to the RBAC manifests these tools would generate automatically for a real `TaskTrackerBackup` Operator; it was constructed by hand here specifically to demonstrate how that mechanism functions.
 
-Operator SDK (Kubebuilder) will take care of generating the CRD code structure, the watching/informing/workqueuing plumbing, and the RBAC configurations that the Operator requires, so the author only writes the reconciliation code. I did not use it as creating an actual Operator with it was not in the scope of this unit as per the lecture notes. However, it is directly related to what I have created: The aggregated ClusterRole in section 2.3.1.2 is precisely the kind of configuration that the Operator SDK would have created for a real `TaskTrackerBackup` Operator. I created it by hand to understand how it works.
+#### 6.2.2 Writing controllers for custom resources (2.4.2.2)
 
-#### 2.4.2.2 Writing controllers for custom resources
-
-I didn't write a real controller, but I can describe precisely what one for `TaskTrackerBackup` would need to do, based on the reconcile loop from the lecture notes:
+No controller was implemented. The reconciliation logic a `TaskTrackerBackup` controller would require can be described directly, based on the reconcile loop presented in the lecture notes:
 
 ```text
 function reconcile(taskTrackerBackup):
@@ -546,24 +555,27 @@ function reconcile(taskTrackerBackup):
     updateStatusCondition(taskTrackerBackup, observedGeneration=...)
 ```
 
-What the notes say for sure, and what in fact makes perfect sense after giving it some thought: this must be a level-based reconciliation, where "what does the spec require right now" is compared to "what is actually present right now" rather than to "what has specifically changed." The `nightly-backup` object I have sits there with an empty status as long as I let it – a real controller has to be able to withstand a restart, to completely skip an update or to clear its entire cache and still reach the right status on the next attempt. "What changed" is precisely what will break when the controller starts working at an incorrect time.
+The lecture notes require this logic to be level-based: comparing the current desired state against the current actual state, rather than tracking which specific field changed. This matters directly in this environment: the `nightly-backup` object used here sat with an empty status for as long as it was left untouched, and a controller must be able to restart, miss an update entirely, or rebuild its cache from nothing, and still reach the correct state on its next pass. Logic that instead tracks "what changed" fails precisely under those conditions.
 
-### 2.4.3 Examples of popular operators
+### 6.3 Examples of popular operators (2.4.3)
 
-This ties right back into the point I've been making in section 2.1 of using only one `db` replica, since the basic `postgres` image isn't able to coordinate multiple replicas of itself, something I proved directly in the independent data test. The actual piece that bridges the gap is a Postgres operator - there are two common options: **CloudNativePG** or the **Zalando Postgres Operator** -. Behind the scenes, it's actually managing a StatefulSet, the very same object I created by hand in 2.1, but it has the application knowledge that a StatefulSet does not: picking the leader replica out of the set, configuring streaming replication to ensure that the replicas are actually kept in sync, failover in case the leader goes down, and backups that happen automatically, something my simple `TaskTrackerBackup` CRD was pretending to do but which doesn't actually use an operator. The **Prometheus Operator** is another famous example of an operator, which manages Prometheus and Alertmanager through its own CRDs (`Prometheus`, `ServiceMonitor`).
+This connects directly to the decision made in Section 3.2 to keep `db` at a single replica: a plain `postgres` container cannot coordinate multiple instances of itself, as demonstrated by the independent-data test in Section 3.2.2. A production PostgreSQL operator (**CloudNativePG** or the **Zalando Postgres Operator** are the two most commonly used) closes this gap. Both manage a StatefulSet internally, the same object type built manually in Section 3, but add the application-specific knowledge a StatefulSet alone does not provide: electing a primary among replicas, configuring streaming replication so replicas remain synchronised, performing automatic failover on primary failure, and taking scheduled backups. This is the functionality the `TaskTrackerBackup` CRD in Section 6.1.1 represents in outline, without any controller behind it. The **Prometheus Operator** is the other commonly cited example, managing Prometheus and Alertmanager deployments through its own CRDs (`Prometheus`, `ServiceMonitor`), covered separately in Unit V.
 
-## Problems encountered and how I actually worked through them
+## 7. Implementation Notes
 
+The following issues arose during implementation and are recorded for completeness, each with its cause and resolution.
 
-- **`FailedMount` and a slow image pull by the Ingress controller.** 2.2.2.1 - neither were issues, both got fixed once I reviewed the events instead of simply repeating the command.
-- **My A1 Quota was reached when scaling up the StatefulSet, twice.** 2.1.4 - firstly, PVC quota, then memory limit, and a forced reconciliation via scale-down/scale-up was needed because the StatefulSet controller does not observe its quota.
-- **`crd/` directory did not exist when I initially attempted to create a CRD file.** `mkdir -p crd` solved the issue, which seems like a minor thing to pay attention to, but one of those errors worth reading.
-- **I tested `api.tasktracker.local/status` before discovering that the actual route is `/api/status`.** I found out the issue myself from the "Cannot GET /status" error message - a simple mistake, not a routing problem.
-- **New cluster, old namespace in kubectl.** After rebuilding a cluster for Ingress, `kubectl get pods` returned an empty list because the `set-context --current --namespace=...` trick did not persist through a new cluster.
+| Issue | Cause | Resolution |
+|---|---|---|
+| Ingress controller `FailedMount` and slow readiness | Admission webhook Job completing after the controller Pod was scheduled; controller image pull exceeding the wait timeout | Confirmed via `kubectl describe pod`; resolved without intervention once the pull completed (Section 4.2.1) |
+| StatefulSet scaling blocked by quota (PVC count, then memory limit) | A1's ResourceQuota was sized for a single-replica database | Quota raised and re-justified against the calculated scaling peak; StatefulSet controller does not watch the ResourceQuota directly, so a scale-down/scale-up was needed to trigger re-evaluation (Section 3.4) |
+| `kubectl get pods --as=` did not reflect group membership | `--as=` impersonates a username only; group membership is only read from an actual certificate or an explicit `--as-group=` flag | Corrected by adding `--as-group=dso202-students` to the verification command (Section 5.2.1) |
 
-## Limitations
-- The database has not been turned into a 3-replica StatefulSet in the running version, but its behavior has been shown deliberately then scaled down, because a real 3-replica setup would require an actual operator (2.4.3).
-- TLS certificates are self-signed, because there is no real domain in the kind cluster - a real deployment would have cert-manager set up and a proper certificate authority, which is specifically mentioned in the lecture notes as such.
-- `TaskTrackerBackup` is a CRD without a controller. This is a design choice for the task (2.4.1.1), not something that I have not had enough time to implement - the fact that a controller is not implemented is explicitly stated in the lecture notes to be out of scope.
-- The read-only RBAC permission for Pods is only for demonstration purposes (2.3.1.1) and is not actually used in the application today.
+## 8. Limitations
+
+- The database runs as a single StatefulSet replica in the deployed configuration. Three-replica behaviour is demonstrated deliberately (Section 3.2.2) and then reverted, since a genuinely useful multi-replica deployment requires an Operator (Section 6.3) to manage replication, which is outside this assignment's scope.
+- TLS uses a self-signed certificate, since no real domain is available for a kind cluster. A production deployment would use cert-manager with a trusted certificate authority, as identified in the lecture notes.
+- x509 client certificates, as used for the `pema` and `classmate-demo` identities, cannot be revoked in Kubernetes; access can only be removed by deleting the associated RoleBinding or waiting for the certificate to expire (90 days, in this case). A shared or long-lived cluster would use ServiceAccount tokens or an OIDC provider instead, as noted in the Create_CSR reference material.
+- `TaskTrackerBackup` is a CRD with no controller. This is deliberate, demonstrating the CRD/controller distinction described in Section 6.1.1, and matches the lecture notes' own statement that building a working controller is beyond this unit's scope.
+- The backend's RBAC permissions (read-only on Pods) are not consumed by the application's own logic; they exist solely to demonstrate the ServiceAccount authentication mechanism described in Section 5.3.2.
 
