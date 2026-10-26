@@ -1,8 +1,8 @@
 # DSO202 Assignment 3: Packaging the Task Tracker with Kustomize and Helm
 
-**Student:** Pema Dolker    
-**Student ID:** 02230294    
-**Module:** DSO202: Scaling, Orchestration, Monitoring & Observability    
+**Student:** Pema Dolker  
+**Student ID:** 02230294  
+**Module:** DSO202: Scaling, Orchestration, Monitoring & Observability
 
 ## Table of Contents
 
@@ -436,11 +436,23 @@ The two tools are not exclusive. A common pattern in industry is to install a th
 - **No readiness or liveness probes,** to stay within the A1 design. The backend's own retry loop handles the start-up order. Without probes, `--wait` can only tell that containers are running, not that the application works, which is one reason the chart includes `helm test`.
 - **A single database replica** in every environment. Prod has more backend and frontend replicas, but the database is not highly available.
 - **NodePorts 30081 to 30083 are reached through the node IP,** because only 30080 is mapped to `localhost` in the kind config. On a real cluster this would be handled by an Ingress or a LoadBalancer.
-- **The images are my amd64 rebuilds,** as in A1 and A2, approved by the tutor.
+- **The images are my amd64 rebuilds,** as in A1 and A2, approved by the tutor. Section 9 explains how to switch to the tutor's images on an arm64 machine, which needs one change in Kustomize and three `--set` flags in Helm.
 
 ## 9. How to reproduce
 
-From the `assignment-3` folder, with the A2 kind cluster running:
+### Running on another machine
+
+- The images are my amd64 rebuilds (see A1). On an Apple Silicon (arm64) machine, use the tutor's images instead. Nothing else changes, because both sets use the same tag, ports and environment variables:
+  - **Kustomize:** add `newName: sarojsanyasi/dso202-frontend` (and the same for `-backend` and `-db`) under each entry of `images:` in `kustomize/base/kustomization.yaml`.
+  - **Helm:** add `--set images.frontend.repository=sarojsanyasi/dso202-frontend --set images.backend.repository=sarojsanyasi/dso202-backend --set images.database.repository=sarojsanyasi/dso202-db` to the install command.
+- A kind cluster with host port 30080 mapped (as in Practical 1) is enough. No Ingress is needed.
+- Helm 4 is needed for the drift test in section 5.10. Everything else also works with Helm 3.
+- The credential files are not in the repository. Create them from the `.example` files as shown below before applying anything.
+- On macOS, Docker Desktop does not route to the kind node's IP, so NodePorts 30081 to 30083 cannot be reached that way. Use `kubectl port-forward` instead, for example `kubectl -n a3-kustomize-prod port-forward svc/frontend-svc 8081:8080`.
+
+### Commands
+
+From the `assignment-3` folder:
 
 ```bash
 # credentials (gitignored)
