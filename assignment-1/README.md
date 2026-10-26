@@ -32,7 +32,7 @@ kubectl apply -f frontend/
 
 The app is then available at `http://localhost:30080`.
 
-A new kind cluster ` kind create cluster --name dso202-assignment --config kind-config.yaml` was set up for this assignment. The reason why we need to specify the port mapping for the kind cluster is that the "node" is essentially a Docker container, and thus, I included it in my kind-config.yaml. After setting up the kind cluster, I verified that the node is Ready, that the default StorageClass of kind (standard) is present for the database volume, and that port 30080 is mapped to the node.
+A new kind cluster `kind create cluster --name dso202-assignment --config kind-config.yaml` was set up for this assignment. The reason why we need to specify the port mapping for the kind cluster is that the "node" is essentially a Docker container, and thus, I included it in my kind-config.yaml. After setting up the kind cluster, I verified that the node is Ready, that the default StorageClass of kind (standard) is present for the database volume, and that port 30080 is mapped to the node.
 
 ![Cluster ready](evidence/01-cluster-ready.png)
 
@@ -48,7 +48,7 @@ For further steps, I created the three Docker images myself from the source code
 
 ## 3. Task 1: Architecture note
 
-When `kubectl apply` is called, the command goes to the kube-apiserver which checks the request and stores the desired state in etcd. The Deployment controller from the kube-controller-manager detects the requirement of the Deployment for one Pod and requests it via a ReplicaSet. The kube-scheduler picks up the kind node to schedule the new Pod on. On the kind node, the kubelet takes responsibility by instructing containerd to download the image and create a Pod. The kubelet mounts the required volume and also injects the contents of ConfigMap and Secret as environment variables.kube-proxy creates rules for routing traffic from Service to appropriate Pods. CoreDNS provides service discovery functionality for pods allowing them to use services by their names such as `db-svc`.
+When `kubectl apply` is called, the command goes to the kube-apiserver which checks the request and stores the desired state in etcd. The Deployment controller from the kube-controller-manager detects the requirement of the Deployment for one Pod and requests it via a ReplicaSet. The kube-scheduler picks up the kind node to schedule the new Pod on. On the kind node, the kubelet takes responsibility by instructing containerd to download the image and create a Pod. The kubelet mounts the required volume and also injects the contents of ConfigMap and Secret as environment variables. kube-proxy creates rules for routing traffic from Service to appropriate Pods. CoreDNS provides service discovery functionality for pods allowing them to use services by their names such as `db-svc`.
 
 I used one Deployment and one Service per tier, plus shared configuration objects:
 
@@ -129,9 +129,9 @@ I sized the quota from those totals and did not pick round numbers at random:
 - **limits 2 CPU / 1Gi:** enough to cover the peak of 1100m / 832Mi.
 - **pods 8:** three are running, an extra pod in case of a rolling update, one test pod + two extras.
 - **persistentvolumeclaims 2:** one needed, one is extra.
-- **services.nodeports 1 and services.loadbalancers 0:** just the frontend is allowed to have NodePort and LoadBalancer (as per the brief).
+- **services.nodeports 1 and services.loadbalancers 0:** only one NodePort is allowed (the frontend), and no LoadBalancers at all (as per the brief).
 
-A LimitRange sets a default for those containers which request/limit nothing – 50m / 64Mi request and 250m / 256Mi limit. Minimum limits are set to 10m / 16Mi while the maximum is 500m / 512Mi. Maximum limits match the largest Pod (the database) with a margin and prevent any single Pod taking a large chunk of the quota. All Deployments are within the specified limits and "Used" column in the table below is in agreement with my limits.
+A LimitRange sets a default for those containers which request/limit nothing: 50m / 64Mi request and 250m / 256Mi limit. Minimum limits are set to 10m / 16Mi while the maximum is 500m / 512Mi. Maximum limits match the largest Pod (the database) with a margin and prevent any single Pod taking a large chunk of the quota. All Deployments are within the specified limits and "Used" column in the table below is in agreement with my limits.
 
 ![Requirements check and quota usage](evidence/09-requirements-quota.png)
 
@@ -178,7 +178,7 @@ The task I created before the deletion is still there:
 
 The ReplicaSet was responsible for recreating the pod, in that it is configured to maintain one backend pod, but sees none and hence creates a new pod. This task succeeded because it resides on the Persistent Volume via PostgreSQL and not within the backend pod itself. 
 
-Another test involved deleting the database Pod too. The PVC remained in the `Bound` state, a new database Pod was created that used the same volume, and the same task was also generated again.
+Another test involved deleting the database Pod too. The PVC remained in the `Bound` state, a new database Pod was created that used the same volume, and the same task was still there.
 
 
 ![Database Pod deleted](evidence/18-db-pod-deleted.png)
@@ -214,7 +214,6 @@ The `rbac.yaml` file defines ServiceAccount `readonly-sa`, Role `namespace-reade
 - **`kubectl port-forward` failed with "address already in use".** There was an old port-forward using port 8080. I found it by using `ss -ltnp` command and killed it; now I close each tunnel immediately after I use it.
 - **The backend reported `EAI_AGAIN` and "retrying" errors on startup.** The name of the database could not be resolved because the database Pod was still starting. It is the retry mechanism that is expected according to the brief: the backend keeps trying until it connects.
 - **The web application cannot communicate with the backend.** Discussed in section 5.
-
 - **One backend Pod was restarted once, several seconds after it started.** The container ended with code 133 (SIGTRAP), and the previous log of the same container had shown an internal error from Node.js' V8 engine. I verified that it was not a case of exceeded memory limits (they have exit code 137 and message `OOMKilled`), and it was not a misconfiguration. Kubernetes automatically retried the run and the data remained unaffected. I could not find the cause of the issue, but I mention it as another example of Kubernetes retries of failed containers.
 
 ## 10. Limitations
