@@ -1,7 +1,7 @@
 # DSO202 Assignment 1: Three-Tier Task Tracker on Kubernetes   
-## Student name: Pema Dolker  
-## student id : 02230294   
-## Module : DSO202
+### Student name: Pema Dolker  
+### student id : 02230294   
+### Module : DSO202
 
 For this assignment, I have deployed the given Task Tracker application (nginx frontend, Node.js backend, PostgreSQL database) into a local kind cluster. All the services and deployments are under the namespace `dso202-assignment-01`. Since there is no development involved in this assignment, the focus is on Kubernetes manifest configurations only.
 
@@ -34,16 +34,16 @@ The app is then available at `http://localhost:30080`.
 
 A new kind cluster ` kind create cluster --name dso202-assignment --config kind-config.yaml` was set up for this assignment. The reason why we need to specify the port mapping for the kind cluster is that the "node" is essentially a Docker container, and thus, I included it in my kind-config.yaml. After setting up the kind cluster, I verified that the node is Ready, that the default StorageClass of kind (standard) is present for the database volume, and that port 30080 is mapped to the node.
 
-![Cluster ready](<evidence/image.png>)
+![Cluster ready](evidence/01-cluster-ready.png)
 
 ## 2. The images I used (and why)
 
 
 The instructions mention `sarojsanyasi/dso202-{frontend,backend,db}:1.0`. After `docker buildx imagetools inspect` for the three images, they turned out to be published for `linux/arm64` only. I have an `x86_64` architecture on my computer, which `kind node` calls `amd64`, thus Kubernetes could not run them.
 
-For further steps, I created the three Docker images myself from the source code available with the assignment (`Assignment-1-app-code/`) using Dockerfiles without making any changes and uploaded them to my Docker Hub as `pdolker/dso202-{frontend,backend,db}:1.0`. The difference between using the official images and mine in the manifest files is the `image:` parameter in the three Deployments, and I have indicated those lines with `# TEMP`. When the official images will be republished for `amd64`, I need to change those three lines and apply my manifest file again.
+For further steps, I created the three Docker images myself from the source code available with the assignment (`Assignment-1-app-code/`) using Dockerfiles without making any changes and uploaded them to my Docker Hub as `pdolker/dso202-{frontend,backend,db}:1.0`. The difference between using the official images and mine in the manifest files is the `image:` parameter in the three Deployments, and I have indicated those lines with `# TEMP`. When the official images will be republished for `amd64`, I need to change those three lines and apply my manifest file again. Using my own amd64 rebuilds was discussed with the module tutor and approved, since it was the only way to run the application on an amd64 machine.
 
-![alt text](<evidence/image copy 19.png>)
+![Tutor images are published for arm64 only](evidence/02-image-arch-arm64.png)
 
 
 ## 3. Task 1: Architecture note
@@ -69,9 +69,9 @@ The backend reads `DB_*` and the official PostgreSQL image reads `POSTGRES_*`. T
 
 I have listed each variable individually in the Deployments (`configMapKeyRef`/`secretKeyRef`) rather than using `envFrom` to load a whole ConfigMap because in this way each tier gets exactly what it needs and it is clear from the YAML files that the database uses `POSTGRES_*` and the backend `DB_*`.
 
-**Secret caveat.** Kubernetes Secrets are encoded only in base64, and they are not by default encrypted when at rest. Everyone who can access the Secret will be able to decrypt it using only one command, which can be seen below from the screenshot of the process for the username. I encoded the data into `secret.yaml` in base64 (`data:`) form so that no passwords are saved in plaintext in the committed file. It does not make Secrets secure, but that is beyond the scope of this task.
+**Secret caveat.** Kubernetes Secrets are encoded only in base64, and they are not by default encrypted when at rest. Everyone who can access the Secret will be able to decode it using only one command, which can be seen below from the screenshot of the process for the username. I encoded the data into `secret.yaml` in base64 (`data:`) form so that no passwords are saved in plaintext in the committed file. It does not make Secrets secure, but that is beyond the scope of this task.
 
-![ConfigMap, Secret and quota created, Secret decoded](<evidence/image copy.png>)
+![ConfigMap, Secret and quota created, Secret decoded](evidence/03-configmap-secret-decoded.png)
 
 ## 5. Tasks 3 to 5: The three tiers
 
@@ -86,27 +86,29 @@ I have listed each variable individually in the Deployments (`configMapKeyRef`/`
 | Deployment    | `frontend`  | 1 replica, uses `BACKEND_URL`       | frontend  |
 | Service       | `frontend-svc` | NodePort 30080 to port 8080     | frontend  |
 
-Every Pod, Deployment and Service has a `tier` label (as well as `app: task-tracker`). The Deployment and
+Every Pod, Deployment and Service has a `tier` label (as well as `app: task-tracker`). The Deployment and Service selectors use both labels, so each Service only picks up the Pods of its own tier.
 
 **Database.** The PVC is attached to PostgreSQL's data directory, so that the data will be stored on the volume, not in the filesystem of the container itself. I configured the deployment to use the `Recreate` strategy. With the default `RollingUpdate` strategy, Kubernetes will launch a new Pod with the database before shutting down the old one, and two PostgreSQL databases cannot run using one and the same data directory. `Recreate` will stop the old Pod first.
 The default `StorageClass` from kind will create the volume only after a Pod requesting it is scheduled, so the PVC can be in `Pending` state for a while.
 
-![Database tier](<evidence/image copy 2.png>)
+![Database tier](evidence/04-database-tier.png)
 
 **Backend.** `DB_HOST` refers to `db-svc`. In case the backend does not start because the database is not started yet, it logs that it will be retried, so I did not require any probes or ordering techniques as it is shown in the start log. The Service can be accessed only via ClusterIP.
 
 
-![Backend tier](<evidence/image copy 3.png>)
+![Backend tier](evidence/05-backend-tier.png)
 
 **Frontend.** The image sets `BACKEND_URL` in the `config.js` file on container startup. As it can be seen from the picture below, the substitution is performed successfully, so the change of the URL will require only Pod restarting. 
 
-![Frontend tier](<evidence/image copy 4.png>)
+![Frontend tier](evidence/06-frontend-tier.png)
 
 All the resources together, with the labels:
 
-![All resources](<evidence/image copy 5.png>)
+![All resources](evidence/07-all-resources.png)
 
 **Some information about the browser and the backend.** The frontend is a static website, so its JS code will be executed on the client side, which means `BACKEND_URL` is accessed on the client side. `backend-svc` is an internal ClusterIP, which means that a browser on my machine would not be able to resolve it, so the frontend is up but cannot access the backend. The brief allows the use of `curl` via port-forwarded backend to provide the CRUD evidence, and this one is my main evidence. As for the browser screenshots in part 7a, I made it work temporarily by adding `127.0.0.1 backend-svc` in `/etc/hosts` and executing `kubectl port-forward svc/backend-svc 8080:8080`. Nothing was done to the manifests, and the hosts file entry was deleted afterwards. `BACKEND_URL` in ConfigMap is kept the same.
+
+![Temporary hosts entry and backend port-forward used for the browser test](evidence/08-hosts-portforward.png)
 
 ## 6. Task 6: ResourceQuota and LimitRange
 
@@ -131,7 +133,7 @@ I sized the quota from those totals and did not pick round numbers at random:
 
 A LimitRange sets a default for those containers which request/limit nothing – 50m / 64Mi request and 250m / 256Mi limit. Minimum limits are set to 10m / 16Mi while the maximum is 500m / 512Mi. Maximum limits match the largest Pod (the database) with a margin and prevent any single Pod taking a large chunk of the quota. All Deployments are within the specified limits and "Used" column in the table below is in agreement with my limits.
 
-![Requirements check and quota usage](<evidence/image copy 6.png>)
+![Requirements check and quota usage](evidence/09-requirements-quota.png)
 
 The same screenshot shows that the image tags are `1.0` and not `latest`, that only the frontend is a NodePort, and that the search for a plaintext password in the manifests finds nothing.
 
@@ -141,51 +143,51 @@ The same screenshot shows that the image tags are `1.0` and not `latest`, that o
 
 I used `curl` through a port-forwarded backend: list the tasks, create one (POST), read it, update its status to `in_progress` (PUT), delete it (`HTTP 204`) and then read it again to get a `404`.
 
-![CRUD cycle](<evidence/image copy 7.png>)
+![CRUD cycle](evidence/10-crud-curl.png)
 
 I also did the same things in the web page using the temporary hosts entry explained in section 5:
 
-![Frontend connected to the backend](<evidence/image copy 15.png>)
+![Frontend connected to the backend](evidence/11-frontend-connected.png)
 
 Playing around Frontend - adding, updating and deleting tasks 
 
-![Frontend after adding, updating and deleting tasks](<evidence/image copy 16.png>)
+![Frontend after adding, updating and deleting tasks](evidence/12-frontend-crud.png)
 
-![alt text](<evidence/image copy 17.png>)
+![Frontend after adding, updating and deleting tasks (continued)](evidence/13-frontend-crud-2.png)
 
 
 ### 7b. Service DNS from inside the frontend Pod
 
 I did `curl http://backend-svc:8080/api/status` from the frontend Pod and received the output {"status":"ok","db":"connected"}. No port forward was done, therefore the Pod is getting the Service name resolved using CoreDNS. I also did `nslookup`: backend-svc gets resolved to the cluster IP whereas db-svc, being a headless Service, gets resolved directly to the database Pod IP.
 
-![DNS](<evidence/image copy 8.png>)
+![DNS](evidence/14-service-dns.png)
 
 ### 7c. Self-healing and data persistence
 
 First I created a task and listed the Deployment, ReplicaSet and Pod for the backend:
 
-![Before deleting the Pod](<evidence/image copy 9.png>)
+![Before deleting the Pod](evidence/15-before-pod-delete.png)
 
 Then, I deleted the backend Pod using the command `kubectl delete pod -l tier=backend` and observed using `kubectl get pods --watch`. The existing Pod gets into state `Terminating` and a new Pod is created with a different name and enters state `Running` without my intervention:
 
-![Backend Pod deleted and recreated](<evidence/image copy 10.png>)
+![Backend Pod deleted and recreated](evidence/16-pod-recreated.png)
 
 The task I created before the deletion is still there:
 
-![Task still retrievable](<evidence/image copy 11.png>)
+![Task still retrievable](evidence/17-task-still-there.png)
 
 The ReplicaSet was responsible for recreating the pod, in that it is configured to maintain one backend pod, but sees none and hence creates a new pod. This task succeeded because it resides on the Persistent Volume via PostgreSQL and not within the backend pod itself. 
 
 Another test involved deleting the database Pod too. The PVC remained in the `Bound` state, a new database Pod was created that used the same volume, and the same task was also generated again.
 
 
-![Database Pod deleted](<evidence/image copy 12.png>)
+![Database Pod deleted](evidence/18-db-pod-deleted.png)
 
 ### 7d. Declarative vs imperative
 
 The ConfigMap was defined declaratively using `kubectl apply -f configmap.yaml`, and another one was defined imperatively using `kubectl create configmap app-config-imp --from-literal=...`. Then the second command was executed again:
 
-![Declarative vs imperative](<evidence/image copy 13.png>)
+![Declarative vs imperative](evidence/19-declarative-imperative.png)
 
 What happened: When the same file is applied again, the message "unchanged" appears; when the `create` command is repeated, there is an error "AlreadyExists". The declarative object has the label `app=task-tracker`, but the imperative one does not have any labels since only three keys were provided as arguments.
 
@@ -203,7 +205,7 @@ In this case, declarative is definitely better since everything should be reprod
 
 The `rbac.yaml` file defines ServiceAccount `readonly-sa`, Role `namespace-reader` and RoleBinding. It enables `get`, `list`, and `watch` operations for Pods, Pod logs, Services, ConfigMaps, PVCs, Deployments, and ReplicaSets. I intentionally did not include Secret in this list. As it is a Role and not a ClusterRole, it only works in `dso202-assignment-01` namespace. Checked it with `kubectl auth can-i --as=system:serviceaccount:dso202-assignment-01:readonly-sa`. It says that reading is permitted in the namespace, but not deleting Pods, reading Secrets and reading Pods in `kube-system`.
 
-![RBAC checks](<evidence/image copy 14.png>)
+![RBAC checks](evidence/20-rbac-checks.png)
 
 ## 9. Problems I ran into and what I changed
 
