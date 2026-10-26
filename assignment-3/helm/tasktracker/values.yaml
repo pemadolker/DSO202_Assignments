@@ -1,0 +1,104 @@
+# Default values for the tasktracker chart.
+# Every key can be overridden with -f <file> or --set <key>=<value>.
+
+# dev or prod. No default on purpose: the chart will not render
+# until an environment file chooses one.
+environment: ""
+
+# Image tags default to .Chart.AppVersion when left empty.
+# These are my amd64 rebuilds of the tutor images (approved, see A1).
+images:
+  pullPolicy: IfNotPresent
+  frontend:
+    repository: pdolker/dso202-frontend
+    tag: ""
+  backend:
+    repository: pdolker/dso202-backend
+    tag: ""
+  database:
+    repository: pdolker/dso202-db
+    tag: ""
+
+# Database credentials. Either name an existing Secret that already has the
+# keys DB_USER, DB_PASSWORD, POSTGRES_USER and POSTGRES_PASSWORD, or give
+# user and password here (from an untracked file, never committed).
+credentials:
+  existingSecret: ""
+  user: ""
+  password: ""
+
+database:
+  name: taskdb
+  port: 5432
+  persistence:
+    size: 1Gi
+    # Empty means the cluster default StorageClass (kind: "standard").
+    storageClass: ""
+    # true adds helm.sh/resource-policy: keep, so helm uninstall leaves the PVC.
+    keep: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+backend:
+  replicaCount: 1
+  port: 8080
+  corsOrigin: "*"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+frontend:
+  replicaCount: 1
+  port: 8080
+  service:
+    # NodePort like A1. ClusterIP is also allowed.
+    type: NodePort
+    # Used only for NodePort. Must be unique in the whole cluster (30000-32767).
+    nodePort: null
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# Same ResourceQuota and LimitRange as A1, created inside the release namespace.
+quota:
+  enabled: true
+  hard:
+    requests.cpu: "500m"
+    requests.memory: 512Mi
+    limits.cpu: "2"
+    limits.memory: 1Gi
+    pods: "8"
+    persistentvolumeclaims: "2"
+    services.nodeports: "1"
+    services.loadbalancers: "0"
+
+limitRange:
+  enabled: true
+  defaultRequest:
+    cpu: 50m
+    memory: 64Mi
+  default:
+    cpu: 250m
+    memory: 256Mi
+  min:
+    cpu: 10m
+    memory: 16Mi
+  max:
+    cpu: 500m
+    memory: 512Mi
+
+nameOverride: ""
+fullnameOverride: ""

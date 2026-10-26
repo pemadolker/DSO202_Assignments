@@ -1,0 +1,47 @@
+# Prod overlay: more replicas, more resources for the backend, a bigger quota,
+# its own database name and its own NodePort.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  - namespace.yaml
+
+namespace: a3-kustomize-prod
+
+labels:
+  - pairs:
+      app.kubernetes.io/environment: prod
+    includeSelectors: false
+    includeTemplates: true
+
+replicas:
+  - name: backend
+    count: 2
+  - name: frontend
+    count: 2
+
+secretGenerator:
+  - name: db-credentials
+    envs:
+      - db.env
+
+# behavior: merge keeps the base keys and only overrides these two.
+# DB_NAME and POSTGRES_DB must still match each other.
+configMapGenerator:
+  - name: app-config
+    behavior: merge
+    literals:
+      - DB_NAME=taskdb_prod
+      - POSTGRES_DB=taskdb_prod
+
+patches:
+  # Strategic merge: Kubernetes-shaped fragments.
+  - path: patch-backend-resources.yaml
+  - path: patch-quota.yaml
+  # JSON 6902: one operation at an exact path.
+  - target:
+      version: v1
+      kind: Service
+      name: frontend-svc
+    path: patch-frontend-nodeport.json6902.yaml

@@ -1,0 +1,16 @@
+# Prod totals (db 1, backend 2, frontend 2), plus one extra backend Pod
+# during a rolling update:
+#   requests: 100+2*100+2*25 = 350m (+100m) = 450m  | 128+2*128+2*32 = 448Mi (+128Mi) = 576Mi
+#   limits:   500+2*500+2*100 = 1700m (+500m) = 2200m | 256+2*384+2*64 = 1152Mi (+384Mi) = 1536Mi
+# The A1 quota (500m, 512Mi, 2 CPU, 1Gi) is too small for that, so it is raised here.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ns-quota
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.cpu: "3"
+    limits.memory: 2Gi
+    pods: "10"

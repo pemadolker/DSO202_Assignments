@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "tasktracker.dbName" . }}
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: database
+  {{- if .Values.database.persistence.keep }}
+  annotations:
+    # helm uninstall will leave this PVC (and the data) behind on purpose.
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.database.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.database.persistence.size }}

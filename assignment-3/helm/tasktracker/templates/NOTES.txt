@@ -1,0 +1,13 @@
+Task Tracker release {{ .Release.Name }} (revision {{ .Release.Revision }}) is in namespace {{ .Release.Namespace }}.
+Environment: {{ include "tasktracker.environment" . }}, backend replicas: {{ .Values.backend.replicaCount }}, frontend replicas: {{ .Values.frontend.replicaCount }}.
+
+Check the backend through a port-forward (same as A1):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "tasktracker.backendName" . }} 8080:{{ .Values.backend.port }}
+  curl http://localhost:8080/api/status
+{{- if and (eq .Values.frontend.service.type "NodePort") .Values.frontend.service.nodePort }}
+
+The frontend is on NodePort {{ .Values.frontend.service.nodePort }}.
+{{- end }}
+
+Run the chart tests:
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }} --logs

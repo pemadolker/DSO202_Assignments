@@ -1,0 +1,7 @@
+# Dev release: the chart defaults (A1 sizing), one replica of each tier,
+# frontend on NodePort 30082.
+environment: dev
+frontend:
+  service:
+    type: NodePort
+    nodePort: 30082

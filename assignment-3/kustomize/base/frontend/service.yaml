@@ -1,0 +1,17 @@
+# NodePort like A1, but the nodePort number is left out here.
+# NodePorts are unique across the whole cluster, so each overlay picks its own.
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-svc
+  labels:
+    app: task-tracker
+    tier: frontend
+spec:
+  type: NodePort
+  selector:
+    app: task-tracker
+    tier: frontend
+  ports:
+    - port: 8080
+      targetPort: 8080

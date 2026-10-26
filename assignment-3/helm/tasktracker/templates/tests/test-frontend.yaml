@@ -1,0 +1,31 @@
+{{- /*
+helm test: the frontend must serve config.js with the backend address
+rendered from the ConfigMap at container start.
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "tasktracker.fullname" . }}-test-frontend
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    - name: wget
+      image: busybox:1.37
+      command:
+        - sh
+        - -c
+        - |
+          wget -qO- http://{{ include "tasktracker.frontendName" . }}:{{ .Values.frontend.port }}/config.js | tee /dev/stderr | grep 'BACKEND_URL: "http://{{ include "tasktracker.backendName" . }}:{{ .Values.backend.port }}"'
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 50m
+          memory: 32Mi

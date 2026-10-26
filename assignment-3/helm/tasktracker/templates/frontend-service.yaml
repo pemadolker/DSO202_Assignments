@@ -1,0 +1,19 @@
+# nodePort is only written when the type is NodePort AND a number is given.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tasktracker.frontendName" . }}
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: frontend
+spec:
+  type: {{ .Values.frontend.service.type }}
+  selector:
+    {{- include "tasktracker.selectorLabels" . | nindent 4 }}
+    tier: frontend
+  ports:
+    - port: {{ .Values.frontend.port }}
+      targetPort: {{ .Values.frontend.port }}
+      {{- if and (eq .Values.frontend.service.type "NodePort") .Values.frontend.service.nodePort }}
+      nodePort: {{ .Values.frontend.service.nodePort }}
+      {{- end }}

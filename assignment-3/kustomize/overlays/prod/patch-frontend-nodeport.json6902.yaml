@@ -1,0 +1,4 @@
+# The base Service has no nodePort, so this is an "add", not a "replace".
+- op: add
+  path: /spec/ports/0/nodePort
+  value: 30081

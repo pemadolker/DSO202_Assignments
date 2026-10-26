@@ -1,0 +1,16 @@
+# ClusterIP only, as in A1: never reachable from outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tasktracker.backendName" . }}
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: backend
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "tasktracker.selectorLabels" . | nindent 4 }}
+    tier: backend
+  ports:
+    - port: {{ .Values.backend.port }}
+      targetPort: {{ .Values.backend.port }}

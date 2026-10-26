@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tasktracker.backendName" . }}
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: backend
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "tasktracker.selectorLabels" . | nindent 6 }}
+      tier: backend
+  template:
+    metadata:
+      labels:
+        {{- include "tasktracker.labels" . | nindent 8 }}
+        tier: backend
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: api
+          image: {{ include "tasktracker.image" (dict "root" . "tier" "backend") | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.backend.port }}
+          env:
+            {{- range $key := list "DB_HOST" "DB_PORT" "DB_NAME" "APP_PORT" "CORS_ORIGIN" }}
+            - name: {{ $key }}
+              valueFrom:
+                configMapKeyRef: {name: {{ include "tasktracker.configName" $ }}, key: {{ $key }}}
+            {{- end }}
+            {{- range $key := list "DB_USER" "DB_PASSWORD" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef: {name: {{ include "tasktracker.secretName" $ }}, key: {{ $key }}}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}

@@ -1,0 +1,30 @@
+# Prod release: two backend and two frontend replicas, more resources for
+# the backend, its own database name, a bigger quota, and the PVC is kept
+# if the release is uninstalled.
+environment: prod
+database:
+  name: taskdb_prod
+  persistence:
+    keep: true
+backend:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
+frontend:
+  replicaCount: 2
+  service:
+    type: NodePort
+    nodePort: 30083
+# Same calculation as the Kustomize prod overlay (see patch-quota.yaml there).
+quota:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.cpu: "3"
+    limits.memory: 2Gi
+    pods: "10"

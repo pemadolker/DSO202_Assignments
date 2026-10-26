@@ -1,0 +1,18 @@
+{{- /*
+configmap.yaml: same keys as the A1 ConfigMap. DB_HOST and BACKEND_URL are
+built from the release name, so they are never hard-coded.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tasktracker.configName" . }}
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+data:
+  DB_HOST: {{ include "tasktracker.dbName" . | quote }}
+  DB_PORT: {{ .Values.database.port | quote }}
+  DB_NAME: {{ .Values.database.name | quote }}
+  APP_PORT: {{ .Values.backend.port | quote }}
+  CORS_ORIGIN: {{ .Values.backend.corsOrigin | quote }}
+  POSTGRES_DB: {{ .Values.database.name | quote }}
+  BACKEND_URL: {{ printf "http://%s:%v" (include "tasktracker.backendName" .) .Values.backend.port | quote }}

@@ -1,0 +1,16 @@
+# Headless, as in A1: a DNS name inside the namespace, no virtual IP, no outside access.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tasktracker.dbName" . }}
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: database
+spec:
+  clusterIP: None
+  selector:
+    {{- include "tasktracker.selectorLabels" . | nindent 4 }}
+    tier: database
+  ports:
+    - port: {{ .Values.database.port }}
+      targetPort: {{ .Values.database.port }}

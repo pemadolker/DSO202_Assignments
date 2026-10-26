@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tasktracker values",
+  "type": "object",
+  "required": ["environment", "images", "credentials", "database", "backend", "frontend"],
+  "properties": {
+    "environment": { "enum": ["", "dev", "prod"] },
+    "images": {
+      "type": "object",
+      "required": ["pullPolicy", "frontend", "backend", "database"],
+      "properties": {
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] },
+        "frontend": { "$ref": "#/$defs/image" },
+        "backend":  { "$ref": "#/$defs/image" },
+        "database": { "$ref": "#/$defs/image" }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "user":           { "type": "string" },
+        "password":       { "type": "string" }
+      }
+    },
+    "database": {
+      "type": "object",
+      "required": ["name", "port", "persistence", "resources"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*$" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "persistence": {
+          "type": "object",
+          "required": ["size"],
+          "properties": {
+            "size":         { "type": "string", "pattern": "^[0-9]+(Mi|Gi)$" },
+            "storageClass": { "type": "string" },
+            "keep":         { "type": "boolean" }
+          }
+        },
+        "resources": { "type": "object" }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "required": ["replicaCount", "port", "corsOrigin", "resources"],
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "port":         { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "corsOrigin":   { "type": "string", "minLength": 1 },
+        "resources":    { "type": "object" }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "required": ["replicaCount", "port", "service", "resources"],
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "port":         { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "service": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type":     { "enum": ["ClusterIP", "NodePort"] },
+            "nodePort": { "type": ["integer", "null"], "minimum": 30000, "maximum": 32767 }
+          }
+        },
+        "resources": { "type": "object" }
+      }
+    },
+    "quota":      { "type": "object" },
+    "limitRange": { "type": "object" },
+    "nameOverride":     { "type": "string" },
+    "fullnameOverride": { "type": "string" }
+  },
+  "$defs": {
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag":        { "type": "string", "not": { "const": "latest" } }
+      }
+    }
+  }
+}

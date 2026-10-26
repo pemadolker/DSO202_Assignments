@@ -1,0 +1,13 @@
+# Chart.yaml: identity and metadata of the chart.
+apiVersion: v2
+name: tasktracker
+description: The DSO202 A1 three-tier Task Tracker (nginx frontend, Node.js backend, PostgreSQL) packaged as a Helm chart
+type: application
+version: 0.1.0           # version of the chart (the package)
+appVersion: "1.0"        # version of the app images; quoted so YAML keeps it a string
+kubeVersion: ">=1.30.0-0"
+keywords:
+  - dso202
+  - task-tracker
+maintainers:
+  - name: Pema Dolker

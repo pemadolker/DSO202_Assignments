@@ -1,0 +1,31 @@
+{{- /*
+helm test: the backend must answer /api/status with "db":"connected".
+This proves frontend config, backend config, Secret and DB are all wired up.
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "tasktracker.fullname" . }}-test-backend
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    - name: wget
+      image: busybox:1.37
+      command:
+        - sh
+        - -c
+        - |
+          wget -qO- http://{{ include "tasktracker.backendName" . }}:{{ .Values.backend.port }}/api/status | tee /dev/stderr | grep '"db":"connected"'
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 50m
+          memory: 32Mi

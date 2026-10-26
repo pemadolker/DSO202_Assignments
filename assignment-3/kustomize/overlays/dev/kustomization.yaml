@@ -1,0 +1,27 @@
+# Dev overlay: the base as it is, one replica of everything,
+# frontend on NodePort 30080 (the port mapped to the host in kind-config.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  - namespace.yaml
+
+namespace: a3-kustomize-dev
+
+labels:
+  - pairs:
+      app.kubernetes.io/environment: dev
+    includeSelectors: false
+    includeTemplates: true
+
+# Credentials are read from db.env, which is NOT committed (see .gitignore).
+# Copy db.env.example to db.env and fill it in before building.
+secretGenerator:
+  - name: db-credentials
+    envs:
+      - db.env
+
+# Strategic merge patch: looks like a normal Service, only the field to change.
+patches:
+  - path: patch-frontend-nodeport.yaml

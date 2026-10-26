@@ -1,0 +1,46 @@
+# Base: the A1 Task Tracker objects that are the same in every environment.
+# Nothing here says which namespace, how many replicas or which credentials.
+# Those belong to the overlays.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - quota.yaml
+  - database/pvc.yaml
+  - database/deployment.yaml
+  - database/service.yaml
+  - backend/deployment.yaml
+  - backend/service.yaml
+  - frontend/deployment.yaml
+  - frontend/service.yaml
+
+# Added to every object and Pod template, but not to selectors,
+# so the A1 selectors (app + tier) stay exactly as they were.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: task-tracker
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+    includeTemplates: true
+
+# One place to change image tags for all three tiers.
+images:
+  - name: pdolker/dso202-frontend
+    newTag: "1.0"
+  - name: pdolker/dso202-backend
+    newTag: "1.0"
+  - name: pdolker/dso202-db
+    newTag: "1.0"
+
+# Same keys as the A1 configmap.yaml. Generated, so the name gets a content
+# hash and the Deployments that reference it are rewritten to match.
+configMapGenerator:
+  - name: app-config
+    literals:
+      - DB_HOST=db-svc
+      - DB_PORT=5432
+      - DB_NAME=taskdb
+      - APP_PORT=8080
+      - CORS_ORIGIN=*
+      - POSTGRES_DB=taskdb
+      - BACKEND_URL=http://backend-svc:8080
