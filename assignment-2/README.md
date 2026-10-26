@@ -9,7 +9,7 @@
  1. Introduction   
  2. Environment and Architectural Changes  
  3. StatefulSets (2.1)   
- 4. Ingress and Ingress Controllers (2.2)  
+ 4. Ingress and Ingress Controllers (2.2), including browser access through the Ingress  
  5. Kubernetes RBAC (2.3)  
  6. Kubernetes Operators (2.4)   
  7. Implementation Notes   
@@ -49,9 +49,29 @@ nodes:
         protocol: TCP
 ```
 
-Recreating the cluster has no effect on the A1 submission, which was committed and pushed separately.
+Recreating the cluster has no effect on the A1 submission, which was committed and pushed separately. The old cluster was deleted and a new one was created from the updated config, and the node label was checked:
 
-The application images remain the amd64 rebuilds used in A1 (`pdolker/dso202-{frontend,backend,db}:1.0`), since the tutor-issued `sarojsanyasi/...` images are published for arm64 only. Every `image:` line still carries the `# TEMP` comment from A1, marking it for replacement if amd64 images are published later.
+![Old A1 cluster deleted](evidence/00a-cluster-deleted.png)
+![New cluster created from the A2 kind-config.yaml](evidence/00b-cluster-recreated.png)
+
+The A1 manifests were then applied to the new cluster as the starting point, before any Unit II changes were made:
+
+![A1 manifests redeployed on the new cluster](evidence/00c-a1-redeployed.png)
+
+To rebuild the final A2 state from this folder, the order is:
+
+```bash
+kind create cluster --name dso202-assignment --config kind-config.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+kubectl apply -f namespace.yaml -f configmap.yaml -f secret.yaml -f quota.yaml
+kubectl apply -f database/ -f backend/ -f frontend/
+kubectl apply -f rbac.yaml -f rbac-backend.yaml -f crd/ -f rbac-aggregation.yaml -f rbac-clusterrolebinding.yaml
+# TLS secret: the private key is not committed, so a new key and certificate are generated first with the openssl command in section 4.1.2
+kubectl create secret tls tasktracker-tls --cert=tasktracker.crt --key=tasktracker.key -n dso202-assignment-01
+kubectl apply -f ingress.yaml
+```
+
+The application images remain the amd64 rebuilds used in A1 (`pdolker/dso202-{frontend,backend,db}:1.0`), since the tutor-issued `sarojsanyasi/...` images are published for arm64 only. Every `image:` line still carries the `# TEMP` comment from A1, marking it for replacement if amd64 images are published later. Using these rebuilds was discussed with the module tutor and approved.
 
 ## 3. StatefulSets (2.1)
 
@@ -62,6 +82,8 @@ Assignment 1 used a Deployment with a manually-created PVC for the database, whi
 ### 3.2 Deploying stateful applications (2.1.2)
 
 The `db` workload was converted from a Deployment to a StatefulSet. This required deleting the existing Deployment and its manually-created `db-pvc`, then applying the StatefulSet, which provisions its own PVC through a template. The seed data was lost in the process, which is not significant here: the postgres image reseeds the sample tasks automatically the first time it starts against an empty volume.
+
+![Deployment and db-pvc removed, StatefulSet applied, db-0 created](evidence/01a-deployment-to-statefulset.png)
 
 ```yaml
 apiVersion: apps/v1
@@ -103,7 +125,7 @@ spec:
     whenScaled: Delete
 ```
 
-Replica count was kept at 1 for the running application. The `postgres` image has no built-in replication logic; it has no concept of a primary or a follower, and does not synchronise data with any other instance. Running it at three replicas permanently would not produce a database cluster; it would produce three unrelated databases that happen to share a naming pattern. This is demonstrated directly, not assumed, in Section 3.3.
+Replica count was kept at 1 for the running application. The `postgres` image has no built-in replication logic; it has no concept of a primary or a follower, and does not synchronise data with any other instance. Running it at three replicas permanently would not produce a database cluster; it would produce three unrelated databases that happen to share a naming pattern. This is demonstrated directly, not assumed, in Section 3.2.2.
 
 `whenDeleted: Retain` and `whenScaled: Delete` were set deliberately rather than left at default. Scaling a replica down (as done for the demonstration in 3.3) is expected to discard that replica's data, since it only ever holds a disposable copy; deleting the StatefulSet itself should not.
 
@@ -157,6 +179,8 @@ persistentvolumeclaims "data-db-2" is forbidden: exceeded quota: ns-quota,
 requested: persistentvolumeclaims=1, used: persistentvolumeclaims=2, limited: persistentvolumeclaims=2
 ```
 
+![Scaling stopped at db-1 because of the PVC quota](evidence/02a-statefulset-quota-blocked.png)
+
 `persistentvolumeclaims` was raised to 4, but `db-2` did not appear after this change alone. This is consistent with the StatefulSet controller only re-evaluating Pod and PVC creation in response to a change in the StatefulSet's own desired state, rather than watching the ResourceQuota object directly. A scale-down followed by a scale-up forced a fresh reconciliation attempt, which then exposed a second limit:
 
 ```text
@@ -166,7 +190,7 @@ requested: limits.memory=256Mi, used: limits.memory=832Mi, limited: limits.memor
 
 The actual peak required was calculated rather than estimated: `db` at three replicas, plus `backend` and `frontend`, gives a peak of 1850m CPU / 1088Mi memory during a scaling operation. `limits.memory` was set to 1200Mi, sized directly against that figure rather than rounded arbitrarily, and `persistentvolumeclaims` to 4 (three replicas plus one spare). `limits.cpu` was left unchanged, since A1's value of 2 already covers the 1850m peak.
 
-![Final quota, sized for the scaling demonstration's peak usage](evidence/03-statefulset-scaledown.png)
+The final quota values can be seen in the `kubectl describe quota` output at the bottom of the scale-down screenshot in Section 3.2.2.
 
 ## 4. Ingress and Ingress Controllers (2.2)
 
@@ -205,7 +229,7 @@ The worked example in the lecture notes uses a `rewrite-target: /` annotation, w
 
 With Ingress providing external access, `frontend-svc` no longer requires a NodePort. It was changed from `type: NodePort` to `type: ClusterIP` accordingly.
 
-![alt text](evidence/04-ingress-controller.png)
+![frontend-svc changed from NodePort (A1, left) to ClusterIP (A2, right)](evidence/05a-frontend-svc-clusterip.png)
 
 ![Ingress created with both hosts listed, frontend-svc now ClusterIP](evidence/05-ingress-created.png)
 
@@ -282,6 +306,55 @@ for i in $(seq 1 40); do curl -sk -o /dev/null -w "%{http_code}\n" https://taskt
 28 requests returned `200`; 12 returned `503`. An earlier attempt at 10 requests had not been sufficient to trigger the limit, since `limit_req` permits some burst above the configured rate. The rendered NGINX configuration was also checked directly to confirm the annotation had produced an active `limit_req_zone`.
 
 ![28 requests succeeded, 12 were rejected once load exceeded the configured rate](evidence/08-ingress-ratelimit.png)
+
+### 4.4 Using the application from the browser through the Ingress
+
+The curl tests above showed that routing works, but the main reason for adding an Ingress to this application is the browser problem from A1. The frontend is a static site, so the JavaScript runs in the browser and calls `BACKEND_URL` directly from my machine. In A1 this was `http://backend-svc:8080`, which only resolves inside the cluster, so to use the web page I had to add `127.0.0.1 backend-svc` to `/etc/hosts` and keep a `kubectl port-forward` running.
+
+With the Ingress, the page and the API are served from the same host, `https://tasktracker.local`, and the `/api` rule sends API calls to `backend-svc`. So I changed two values in the ConfigMap:
+
+```yaml
+  CORS_ORIGIN: "https://tasktracker.local"
+  BACKEND_URL: "https://tasktracker.local"
+```
+
+`BACKEND_URL` was not left empty, because the frontend's start script replaces an empty value with `http://localhost:8080`. It also had to be `https`, because a page loaded over HTTPS is not allowed to call a plain HTTP address (mixed content). `CORS_ORIGIN` is no longer `*`. Since the page and API now share one origin, CORS is not really needed, but restricting it to the real origin fixes the limitation I noted in A1.
+
+Both Deployments read these values only when the container starts, so they were restarted, and the rendered `config.js` inside the frontend Pod was checked:
+
+```bash
+kubectl apply -f configmap.yaml
+kubectl rollout restart deployment/frontend deployment/backend -n dso202-assignment-01
+kubectl exec -n dso202-assignment-01 deploy/frontend -- cat /usr/share/nginx/html/config.js
+```
+
+![ConfigMap updated, Deployments restarted, config.js now points to the Ingress host](evidence/23-configmap-ingress-url.png)
+
+Before testing, I made sure the A1 workaround was not in use. `/etc/hosts` only has the `tasktracker.local` entry and no `backend-svc` entry, and all port-forwards were stopped with `pkill -f port-forward`:
+
+![hosts file with no backend-svc entry](evidence/24-hosts-no-backend-svc.png)
+
+The application was then opened at `https://tasktracker.local` (the browser shows "Not secure" because the certificate is self-signed). The status badge shows "BACKEND + DB ONLINE" and the tasks load from the database:
+
+![Task Tracker working in the browser through the Ingress](evidence/25-browser-through-ingress.png)
+
+The full CRUD cycle was done from the web page with the Network tab open. Every request goes to `https://tasktracker.local/api/...`, the remote address is `127.0.0.1:443` (the Ingress controller), and the response carries `Access-Control-Allow-Origin: https://tasktracker.local`:
+
+| Action in the page | Request | Result |
+|---|---|---|
+| Load the list | `GET /api/tasks` | 200 OK |
+| File a new task | `POST /api/tasks` | 201 Created |
+| Change the status | `PUT /api/tasks/7` | 200 OK |
+| Tear off the task | `DELETE /api/tasks/7` | 204 No Content |
+
+![GET /api/tasks through the Ingress](evidence/26-network-get-tasks.png)
+![POST /api/tasks, task created](evidence/27-network-post-task.png)
+![PUT /api/tasks/7, status changed](evidence/28-network-put-task.png)
+![DELETE /api/tasks/7, task removed](evidence/29-network-delete-task.png)
+
+Since the Ingress is now the only way into the application, the NodePort allowance in the ResourceQuota was lowered from 1 to 0 (`services.nodeports: "0"`). If someone tries to expose a Service as a NodePort in this namespace again, the API server will reject it.
+
+![Quota now allows no NodePort Services](evidence/30-quota-no-nodeports.png)
 
 ## 5. Kubernetes RBAC (2.3)
 
@@ -364,11 +437,16 @@ EOF
 kubectl certificate approve pema
 ```
 
+![CSR created and approved by the cluster](evidence/12-csr-approved.png)
+![Signed certificate: CN=pema, O=dso202-students, valid for 90 days](evidence/13-cert-issued.png)
+
 `CN=pema` became the username, bound directly to a Role:
 
 ```bash
 kubectl create rolebinding pema-reader --namespace=dso202-assignment-01 --role=namespace-reader --user=pema
 ```
+
+![namespace-reader Role and pema-reader RoleBinding created](evidence/14-user-role.png)
 
 Access was verified by switching to the identity through a genuine kubeconfig context, not through `--as=` impersonation, and testing scope in both directions:
 
@@ -518,7 +596,7 @@ spec:
   retentionDays: 7
 ```
 
-The purpose of this section is to demonstrate that a CRD alone provides no functionality. `kubectl apply` and `kubectl get` operate on it exactly as they would on a built-in resource type, since a StorageClass with `volumeBindingMode: WaitForFirstConsumer` (the same mode used by kind's default StorageClass, which is why the PVCs above show `waiting for first consumer to be created before binding` until a Pod is scheduled) is a comparable example of Kubernetes deferring an action until the right conditions exist. A CRD defers indefinitely, because nothing exists to act on it at all:
+The purpose of this section is to demonstrate that a CRD alone provides no functionality. `kubectl apply` and `kubectl get` work on it exactly as they would on a built-in resource type, because the API server stores and serves it. But storing an object does not make anything happen. Nothing in the cluster acts on it:
 
 ```bash
 kubectl describe tasktrackerbackup nightly-backup   # Status: (empty); Events: <none>
@@ -571,11 +649,13 @@ The following issues arose during implementation and are recorded for completene
 |---|---|---|
 | Ingress controller `FailedMount` and slow readiness | Admission webhook Job completing after the controller Pod was scheduled; controller image pull exceeding the wait timeout | Confirmed via `kubectl describe pod`; resolved without intervention once the pull completed (Section 4.2.1) |
 | StatefulSet scaling blocked by quota (PVC count, then memory limit) | A1's ResourceQuota was sized for a single-replica database | Quota raised and re-justified against the calculated scaling peak; StatefulSet controller does not watch the ResourceQuota directly, so a scale-down/scale-up was needed to trigger re-evaluation (Section 3.4) |
+| Web page loaded through the Ingress but could not load tasks (before 4.4) | `BACKEND_URL` was still `http://backend-svc:8080` from A1, which the browser cannot resolve and which is blocked as mixed content on an HTTPS page | Set `BACKEND_URL` and `CORS_ORIGIN` to `https://tasktracker.local` and restarted both Deployments (Section 4.4) |
 | `kubectl get pods --as=` did not reflect group membership | `--as=` impersonates a username only; group membership is only read from an actual certificate or an explicit `--as-group=` flag | Corrected by adding `--as-group=dso202-students` to the verification command (Section 5.2.1) |
 
 ## 8. Limitations
 
 - The database runs as a single StatefulSet replica in the deployed configuration. Three-replica behaviour is demonstrated deliberately (Section 3.2.2) and then reverted, since a genuinely useful multi-replica deployment requires an Operator (Section 6.3) to manage replication, which is outside this assignment's scope.
+- The TLS private key and the user keys are not committed to the repository. They were removed from version control and are listed in `.gitignore`, so the TLS secret has to be recreated from a newly generated key when rebuilding the cluster.
 - TLS uses a self-signed certificate, since no real domain is available for a kind cluster. A production deployment would use cert-manager with a trusted certificate authority, as identified in the lecture notes.
 - x509 client certificates, as used for the `pema` and `classmate-demo` identities, cannot be revoked in Kubernetes; access can only be removed by deleting the associated RoleBinding or waiting for the certificate to expire (90 days, in this case). A shared or long-lived cluster would use ServiceAccount tokens or an OIDC provider instead, as noted in the Create_CSR reference material.
 - `TaskTrackerBackup` is a CRD with no controller. This is deliberate, demonstrating the CRD/controller distinction described in Section 6.1.1, and matches the lecture notes' own statement that building a working controller is beyond this unit's scope.

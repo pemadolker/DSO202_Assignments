@@ -13,7 +13,7 @@ spec:
     limits.memory: 1200Mi
     pods: "8"
     persistentvolumeclaims: "4"
-    services.nodeports: "1"
+    services.nodeports: "0"
     services.loadbalancers: "0"
 ---
 apiVersion: v1
