@@ -3,7 +3,7 @@
 **Student:** Pema Dolker  
 **Student ID:** 02230294  
 **Module:** DSO202: Scaling, Orchestration, Monitoring & Observability  
-**Repository:** https://github.com/pemadolker/dso202-gitops
+<!-- **Repository:** https://github.com/pemadolker/dso202-gitops -->
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@
 10. Problems I ran into
 11. References
 
-The command output for every task is in [docs/evidence.md](docs/evidence.md).
+<!-- The command output for every task is in [docs/evidence.md](docs/evidence.md). -->
 
 ## 1. Purpose
 
