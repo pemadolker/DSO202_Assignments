@@ -1,0 +1,61 @@
+# =============================================================================
+# File        : argocd/projects/dso202.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit IV 4.4.1 - AppProjects: source and destination rules
+# Purpose     : The workload project. It confines the Task Tracker Applications
+#               to one repository, two namespaces, and an explicit list of
+#               resource kinds. A manifest outside these limits is rejected at
+#               sync time, whoever committed it.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: dso202
+  namespace: argocd
+  annotations:
+    # Wave -3: the project must exist before any Application that refers to it.
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  description: Task Tracker workloads for the dev and staging environments
+
+  sourceRepos:
+    - https://github.com/pemadolker/dso202-gitops.git
+
+  # Only the two workload namespaces. The argocd namespace is not listed, so an
+  # Application in this project can never create other Applications.
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: dso202-dev
+    - server: https://kubernetes.default.svc
+      namespace: dso202-staging
+
+  # An empty list permits no cluster-scoped kinds at all: this project cannot
+  # create namespaces, ClusterRoles, or CustomResourceDefinitions.
+  clusterResourceWhitelist: []
+
+  # Only these namespaced kinds may be deployed. The list is built from the
+  # output of 'helm template' (Task 3) and must name exactly the kinds the chart
+  # renders, including the Job used as a hook. ResourceQuota, LimitRange, Role,
+  # RoleBinding, and SealedSecret are absent on purpose: they belong to the
+  # platform layer, so the workload project cannot loosen its own limits.
+  #
+  # Checked against: helm template tasktracker charts/tasktracker
+  #   -f environments/<env>/values.yaml | grep '^kind:' | sort | uniq -c
+  # which gives ConfigMap 1, Deployment 2, Job 1, Service 3, ServiceAccount 1,
+  # StatefulSet 1. Nothing was added to the provided list and nothing removed.
+  # The database PVC is not listed: it comes from the StatefulSet's
+  # volumeClaimTemplates and is created by the StatefulSet controller, not by
+  # Argo CD, so the project never has to allow it.
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment       # backend, frontend
+    - group: apps
+      kind: StatefulSet      # database
+    - group: ""
+      kind: Service          # db (headless), backend (ClusterIP), frontend (NodePort)
+    - group: ""
+      kind: ConfigMap        # tasktracker-config
+    - group: ""
+      kind: ServiceAccount   # tasktracker-backend
+    - group: batch
+      kind: Job              # tasktracker-smoke-test (PostSync hook)

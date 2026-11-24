@@ -1,0 +1,60 @@
+# =============================================================================
+# File        : charts/tasktracker/templates/frontend-deployment.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit I 1.2 - Deployments; Unit IV 4.3.2 - sync waves;
+#               4.3.3 - health checks
+# Purpose     : The nginx frontend. Changes from A3: extra env from values
+#               (C2), readiness probe (C4), wave 2 (C5),
+#               progressDeadlineSeconds (C6).
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tasktracker.frontendName" . }}
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: frontend
+  annotations:
+    # C5: last, after the backend (wave 1) is Healthy.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  # C6: same reason as the backend.
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
+  selector:
+    matchLabels:
+      {{- include "tasktracker.selectorLabels" . | nindent 6 }}
+      tier: frontend
+  template:
+    metadata:
+      labels:
+        {{- include "tasktracker.labels" . | nindent 8 }}
+        tier: frontend
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: web
+          image: {{ include "tasktracker.image" (dict "root" . "tier" "frontend") | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.port }}
+          env:
+            - name: BACKEND_URL
+              valueFrom:
+                configMapKeyRef: {name: {{ include "tasktracker.configName" . }}, key: BACKEND_URL}
+            {{- with .Values.frontend.env }}
+            {{- include "tasktracker.extraEnv" . | trim | nindent 12 }}
+            {{- end }}
+          # C4: nginx answers / once config.js has been written by the
+          # entrypoint script.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}

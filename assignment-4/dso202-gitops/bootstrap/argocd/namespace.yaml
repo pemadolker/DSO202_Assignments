@@ -1,0 +1,11 @@
+# =============================================================================
+# File        : bootstrap/argocd/namespace.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit IV 4.2.1 - installation via manifests
+# Purpose     : Creates the namespace that holds every Argo CD component. The
+#               upstream installation manifest does not create it.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd

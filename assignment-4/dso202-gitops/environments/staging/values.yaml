@@ -1,0 +1,32 @@
+# =============================================================================
+# File        : environments/staging/values.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit III 3.2 - Helm values; Unit IV 4.3.1 - Application CRDs
+# Purpose     : Everything that is different in staging. The
+#               tasktracker-staging Application reads this file at a Git tag,
+#               not at main, so editing it on main changes nothing in staging
+#               until the tag in the Application is moved and a person syncs.
+# =============================================================================
+environment: staging
+
+images:
+  frontend:
+    tag: "1.0"
+  backend:
+    tag: "1.0"
+  database:
+    tag: "1.0"
+
+# Same Secret name as dev, but a different Secret: it is sealed separately
+# for the dso202-staging namespace, with a different password.
+credentials:
+  existingSecret: tasktracker-credentials
+
+backend:
+  replicaCount: 1
+
+frontend:
+  replicaCount: 1
+  service:
+    # Not mapped by the kind config; reached with kubectl port-forward.
+    nodePort: 30081

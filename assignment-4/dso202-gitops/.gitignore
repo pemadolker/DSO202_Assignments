@@ -1,0 +1,19 @@
+# =============================================================================
+# File        : .gitignore
+# Assignment  : DSO202 Assignment 4
+# Purpose     : Keeps key material and plaintext Secrets out of the repository.
+#               Git history is permanent: a value committed once must be treated
+#               as exposed even after the file is deleted.
+# =============================================================================
+# Sealing-key backups (Task 4) and any exported key material
+*.key
+*sealing-key*
+*.backup.yaml
+
+# Plaintext Secrets used only as input to kubeseal
+secrets-plain/
+*-plain.yaml
+
+# Local tooling output
+*.log
+.DS_Store

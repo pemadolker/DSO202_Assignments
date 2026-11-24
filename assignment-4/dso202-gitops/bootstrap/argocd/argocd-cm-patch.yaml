@@ -1,0 +1,43 @@
+# =============================================================================
+# File        : bootstrap/argocd/argocd-cm-patch.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit IV 4.2 (configuration), 4.4.2 (local accounts)
+# Purpose     : Three changes to the argocd-cm ConfigMap, each explained below.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+data:
+  # 1. Git polling interval.
+  #    Argo CD polls repositories for new commits; the default interval is three
+  #    minutes. A cluster on a laptop is not reachable from GitHub, so webhooks
+  #    cannot be used, and polling is the only way a push is noticed. One minute
+  #    shortens the wait without any meaningful load. The jitter spreads polls
+  #    from many applications so that they do not all start together.
+  timeout.reconciliation: 60s
+  timeout.reconciliation.jitter: 10s
+
+  # 2. A second, read-only account used in Task 6. The 'login' capability
+  #    permits interactive sign-in; 'apiKey' (token generation) is not granted.
+  accounts.reviewer: login
+
+  # 3. Health assessment for Application resources.
+  #    Argo CD removed this check in version 1.8. Without it, a parent
+  #    Application reports Healthy as soon as its child Application objects
+  #    exist, so sync waves in the root Application cannot wait for a child to
+  #    become Healthy. This Lua script, taken from the Argo CD documentation,
+  #    restores the check: a child Application's health is reported upward.
+  resource.customizations.health.argoproj.io_Application: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = ""
+    if obj.status ~= nil then
+      if obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+    end
+    return hs

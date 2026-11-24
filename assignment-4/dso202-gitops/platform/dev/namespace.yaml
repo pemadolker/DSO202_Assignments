@@ -1,0 +1,20 @@
+# =============================================================================
+# File        : platform/dev/namespace.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit I 1.5.1 - namespaces; Unit IV 4.3.2 - sync options
+# Purpose     : The dev namespace, owned by the platform-dev Application.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dso202-dev
+  labels:
+    dso202/assignment: "04"
+    dso202/environment: dev
+    dso202/managed-by: argocd
+  annotations:
+    # The platform-dev Application has pruning enabled. Without this
+    # annotation, deleting this file from Git would delete the namespace and
+    # everything inside it. 'Prune=false' tells Argo CD never to prune this
+    # object, so removal requires a deliberate manual step.
+    argocd.argoproj.io/sync-options: Prune=false

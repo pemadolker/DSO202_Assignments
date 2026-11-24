@@ -1,0 +1,24 @@
+# =============================================================================
+# File        : charts/tasktracker/templates/backend-service.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit I 1.3 - Services
+# Purpose     : ClusterIP only, as in A1: the backend is never reachable from
+#               outside the cluster. The smoke test (smoke-test-job.yaml) and
+#               the frontend reach it by this name: tasktracker-backend.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tasktracker.backendName" . }}
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: backend
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "tasktracker.selectorLabels" . | nindent 4 }}
+    tier: backend
+  ports:
+    - name: http
+      port: {{ .Values.backend.port }}
+      targetPort: {{ .Values.backend.port }}

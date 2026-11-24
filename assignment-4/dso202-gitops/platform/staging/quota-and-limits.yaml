@@ -1,0 +1,63 @@
+# =============================================================================
+# File        : platform/staging/quota-and-limits.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit I 1.5.3 - ResourceQuota and LimitRange; Unit II 2.3
+# Purpose     : The Assignment 2 ResourceQuota and LimitRange, moved to the
+#               platform layer (chart contract C8) and pointed at dso202-staging.
+#               Only one value is changed from A2, see services.nodeports.
+#
+# Budget check for one copy of the Task Tracker (requests / limits):
+#   database 100m 128Mi / 500m 256Mi, backend 50m 64Mi / 250m 256Mi,
+#   frontend 25m 32Mi / 100m 64Mi, smoke test 10m 16Mi / 50m 32Mi
+#   total     185m 240Mi / 900m 608Mi
+# A rolling update adds one extra backend or frontend Pod for a short time,
+# which still fits under the hard limits below.
+# =============================================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ns-quota
+  namespace: dso202-staging
+  labels:
+    app: task-tracker
+    dso202/environment: staging
+spec:
+  hard:
+    requests.cpu: "500m"
+    requests.memory: 512Mi
+    limits.cpu: "2"
+    limits.memory: 1200Mi
+    pods: "8"
+    persistentvolumeclaims: "4"
+    # A2 had 0 here because the frontend went through the Ingress. In this
+    # assignment there is no ingress controller and the frontend Service is a
+    # NodePort (C10), so exactly one NodePort is allowed.
+    services.nodeports: "1"
+    services.loadbalancers: "0"
+---
+# Fills in requests and limits for any container that forgets them, and
+# rejects anything outside min and max. The chart sets them on every
+# container anyway (C7), so the defaults should never be used.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: container-limits
+  namespace: dso202-staging
+  labels:
+    app: task-tracker
+    dso202/environment: staging
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      default:
+        cpu: 250m
+        memory: 256Mi
+      min:
+        cpu: 10m
+        memory: 16Mi
+      max:
+        cpu: 500m
+        memory: 512Mi

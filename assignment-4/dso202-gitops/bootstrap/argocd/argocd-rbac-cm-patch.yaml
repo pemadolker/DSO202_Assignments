@@ -1,0 +1,27 @@
+# =============================================================================
+# File        : bootstrap/argocd/argocd-rbac-cm-patch.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit IV 4.4.2 - access control, RBAC for Argo CD users
+# Purpose     : Grants the 'reviewer' account read access to one project only.
+# Policy form : p, <subject>, <resource>, <action>, <object>, <effect>
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+data:
+  # An empty default role means a signed-in user with no matching policy can
+  # see nothing. The built-in 'admin' account is unaffected because it is bound
+  # to the built-in admin role.
+  policy.default: ""
+
+  policy.csv: |
+    # Task 6, step 2: view applications and the project, nothing else.
+    # The object 'dso202/*' means "every application in the dso202 project".
+    p, reviewer, applications, get, dso202/*, allow
+    p, reviewer, projects, get, dso202, allow
+
+    # Task 6, step 4 adds the line below. Until it is present, container logs
+    # are hidden from this account: since Argo CD 3.0, logs are a separate RBAC
+    # resource and are no longer implied by read access to the application.
+    # p, reviewer, logs, get, dso202/*, allow

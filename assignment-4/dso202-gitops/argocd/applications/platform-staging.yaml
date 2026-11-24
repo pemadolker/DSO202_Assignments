@@ -1,0 +1,52 @@
+# =============================================================================
+# File        : argocd/applications/platform-staging.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit IV 4.3.1 - Application CRDs; 4.3.2 - sync policies
+# Purpose     : Delivers the platform objects of the staging environment: the
+#               namespace, ResourceQuota, LimitRange, Role and RoleBinding from
+#               Assignment 2, and the staging credentials, sealed separately.
+# Derived from: argocd/applications/platform-dev.yaml (Listing 10). Only the
+#               name, the path and the destination namespace are different.
+#               The sync policy stays automated here even though the staging
+#               workloads are manual: the platform layer is not what gets
+#               promoted, and a hand change to a quota or a Role in staging
+#               should be undone just like in dev. The promotion gate is on
+#               tasktracker-staging only.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-staging
+  namespace: argocd
+  annotations:
+    # Wave -1: same as platform-dev. Both environments get their platform
+    # layer before any workload Application starts.
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+
+  source:
+    repoURL: https://github.com/pemadolker/dso202-gitops.git
+    targetRevision: main
+    path: platform/staging
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dso202-staging
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # Same reason as platform-dev: the SealedSecret kind may not be visible
+      # yet on the first sync after a rebuild.
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

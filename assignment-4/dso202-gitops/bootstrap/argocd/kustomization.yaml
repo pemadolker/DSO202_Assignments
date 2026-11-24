@@ -1,0 +1,28 @@
+# =============================================================================
+# File        : bootstrap/argocd/kustomization.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit IV 4.2.1 - installation via manifests (built on Unit III 3.1)
+# Apply with  : kubectl apply -k bootstrap/argocd --server-side --force-conflicts
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Every namespaced object in the upstream manifest is placed in this namespace.
+# The same value is written into the subjects of the ClusterRoleBindings.
+namespace: argocd
+
+resources:
+  - namespace.yaml
+
+  # The upstream installation manifest, pinned to an immutable release tag.
+  # Replacing the tag with 'stable' or 'master' would make this file mean
+  # something different on different days, which breaks the "versioned and
+  # immutable" GitOps principle. An upgrade is a one-line change to the tag,
+  # reviewed and committed like any other change.
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+
+# Strategic merge patches. Each patch names the ConfigMap it modifies and lists
+# only the keys to add; every other key in the upstream ConfigMap is retained.
+patches:
+  - path: argocd-cm-patch.yaml
+  - path: argocd-rbac-cm-patch.yaml
