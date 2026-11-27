@@ -1,0 +1,36 @@
+# =============================================================================
+# File        : environments/staging/values.yaml
+# Assignment  : DSO202 Assignment 4
+# Descriptor  : Unit III 3.2 - Helm values; Unit IV 4.3.1 - Application source
+# Purpose     : Only what differs in staging. tasktracker-staging reads this
+#               file AT THE TAG in its targetRevision, so editing it on main
+#               changes nothing in staging until the tag is moved and a person
+#               syncs (the promotion gate).
+# =============================================================================
+
+# C1: image tags per tier.
+images:
+  frontend:
+    tag: "1.0"
+  backend:
+    tag: "1.0"
+  database:
+    tag: "1.0"
+
+# C3: the Secret created from platform/staging/tasktracker-credentials.sealed.yaml
+# (sealed separately from dev, with a different password).
+credentials:
+  existingSecret: tasktracker-credentials
+
+backend:
+  replicaCount: 1
+
+frontend:
+  replicaCount: 1
+  service:
+    # C10: 30081 is not mapped by the kind config; staging is reached with
+    #   kubectl port-forward -n dso202-staging svc/tasktracker-frontend 8081:8080
+    nodePort: 30081
+  # Browser-reachable backend for staging:
+  #   kubectl port-forward -n dso202-staging svc/tasktracker-backend 8091:8080
+  backendUrl: "http://localhost:8091"
