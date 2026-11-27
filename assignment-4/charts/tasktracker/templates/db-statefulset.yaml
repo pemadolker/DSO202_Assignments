@@ -1,0 +1,111 @@
+{{- /*
+=============================================================================
+File        : charts/tasktracker/templates/db-statefulset.yaml
+Assignment  : DSO202 Assignment 4
+Descriptor  : Unit II 2.1 - StatefulSets; Unit IV 4.3.2 - sync waves,
+              4.3.3 - health checks
+Purpose     : PostgreSQL as a StatefulSet (the A2 design), sync wave "0" so it
+              is Healthy before the backend (wave "1") is created.
+Why a StatefulSet and not the A3 Deployment + PVC:
+  - its PVC is created by the StatefulSet controller from volumeClaimTemplates,
+    so the chart renders no PersistentVolumeClaim and the dso202 project does
+    not need that kind in its whitelist;
+  - updateStrategy RollingUpdate, because Argo CD does not report a StatefulSet
+    with OnDelete as Healthy (brief, section 13), which would stall the waves.
+=============================================================================
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "tasktracker.dbName" . }}
+  labels:
+    {{- include "tasktracker.labels" . | nindent 4 }}
+    tier: database
+  annotations:
+    # C5: database first.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  serviceName: {{ include "tasktracker.dbName" . }}
+  # Plain postgres has no replication, so more than one replica would mean
+  # separate databases. Fixed at 1 (same reasoning as A2).
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  persistentVolumeClaimRetentionPolicy:
+    # Deleting the StatefulSet (or the Application) keeps the data volume.
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      {{- include "tasktracker.selectorLabels" . | nindent 6 }}
+      tier: database
+  template:
+    metadata:
+      labels:
+        {{- include "tasktracker.labels" . | nindent 8 }}
+        tier: database
+    spec:
+      containers:
+        - name: postgres
+          image: {{ include "tasktracker.image" (dict "root" . "tier" "database") | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.database.port }}
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "tasktracker.configName" . }}
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tasktracker.secretName" . }}
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tasktracker.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            {{- with .Values.database.env }}
+            {{- include "tasktracker.extraEnv" . | trim | nindent 12 }}
+            {{- end }}
+          # C4: Ready only when postgres accepts TCP connections. During first
+          # start-up the image runs a temporary server on the Unix socket only,
+          # so this check stays false until the real server is listening.
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -h 127.0.0.1 -p {{ .Values.database.port }} -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          # C7
+          resources:
+            {{- toYaml .Values.database.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    # apiVersion, kind and volumeMode are written out even though they are the
+    # defaults: the API server stores them, and writing them here keeps the
+    # object in Git identical to the live one, so Argo CD shows no false diff.
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        volumeMode: Filesystem
+        {{- with .Values.database.storage.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.database.storage.size }}

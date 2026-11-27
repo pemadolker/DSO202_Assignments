@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "File: charts/tasktracker/values.schema.json | DSO202 Assignment 4 | Unit III 3.2 | Purpose: helm lint and helm template validate the merged values against this schema. Application image tags may only be the tutor-issued 1.0 or 1.1 and the smoke-test tag must be a numeric version, so no floating tag can be used; pullPolicy Always is rejected; the credentials Secret name is required.",
+  "title": "tasktracker values",
+  "type": "object",
+  "required": ["images", "credentials", "database", "backend", "frontend", "smokeTest"],
+  "definitions": {
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": {
+          "type": "string",
+          "enum": ["", "1.0", "1.1"],
+          "$comment": "Empty only in the chart defaults; the template then fails with 'required'. Must be quoted in YAML so 1.0 stays a string."
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": { "type": "object", "required": ["cpu", "memory"] },
+        "limits": { "type": "object", "required": ["cpu", "memory"] }
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    }
+  },
+  "properties": {
+    "images": {
+      "type": "object",
+      "required": ["pullPolicy", "frontend", "backend", "database"],
+      "properties": {
+        "pullPolicy": { "enum": ["IfNotPresent", "Never"] },
+        "frontend": { "$ref": "#/definitions/image" },
+        "backend": { "$ref": "#/definitions/image" },
+        "database": { "$ref": "#/definitions/image" }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "required": ["existingSecret"],
+      "properties": {
+        "existingSecret": { "type": "string" }
+      }
+    },
+    "database": {
+      "type": "object",
+      "required": ["name", "port", "storage", "resources"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*$" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "storage": {
+          "type": "object",
+          "required": ["size"],
+          "properties": {
+            "size": { "type": "string" },
+            "storageClass": { "type": "string" }
+          }
+        },
+        "resources": { "$ref": "#/definitions/resources" },
+        "env": { "$ref": "#/definitions/env" }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "required": ["replicaCount", "port", "progressDeadlineSeconds", "resources"],
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "corsOrigin": { "type": "string" },
+        "progressDeadlineSeconds": { "type": "integer", "minimum": 30 },
+        "resources": { "$ref": "#/definitions/resources" },
+        "env": { "$ref": "#/definitions/env" }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "required": ["replicaCount", "port", "progressDeadlineSeconds", "service", "resources"],
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "progressDeadlineSeconds": { "type": "integer", "minimum": 30 },
+        "backendUrl": { "type": "string" },
+        "service": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "enum": ["NodePort", "ClusterIP"] },
+            "nodePort": {
+              "anyOf": [
+                { "type": "null" },
+                { "type": "integer", "minimum": 30000, "maximum": 32767 }
+              ]
+            }
+          }
+        },
+        "resources": { "$ref": "#/definitions/resources" },
+        "env": { "$ref": "#/definitions/env" }
+      }
+    },
+    "smokeTest": {
+      "type": "object",
+      "required": ["image", "resources"],
+      "properties": {
+        "image": {
+          "type": "object",
+          "required": ["repository", "tag"],
+          "properties": {
+            "repository": { "type": "string" },
+            "tag": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)*$" }
+          }
+        },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    }
+  }
+}
