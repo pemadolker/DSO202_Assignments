@@ -1,1 +1,12 @@
 Assignment-1-app-code/
+*.key
+*.csr
+k8s-users/
+
+# Assignment 4 is its own public repo (github.com/pemadolker/dso202-gitops),
+# kept here as a nested clone. The sealing-key backup and my run notes must
+# never be committed anywhere.
+assignment-4/dso202-gitops/
+assignment-4/dso202-gitops-new/
+assignment-4/dso202-keys/
+assignment-4/RUN-GUIDE.md
