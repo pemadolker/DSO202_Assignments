@@ -11,7 +11,7 @@ This repository holds my DSO202 assignments. All of them deploy the same three-t
 | [assignment-1](assignment-1/) | Assignment 1 | Three-tier deployment with plain Kubernetes manifests (Unit I) |
 | [assignment-2](assignment-2/) | Assignment 2 | Assignment 1 extended with StatefulSets, Ingress, RBAC and Operators (Unit II) |
 | [assignment-3](assignment-3/) | Assignment 3 | Assignment 1 packaged with Kustomize and Helm |
-| [dso202-gitops](https://github.com/pemadolker/dso202-gitops) | Assignment 4 | GitOps delivery with Argo CD (Unit IV). Separate public repo, as the brief requires; the local copy is in `assignment-4/dso202-gitops/` |
+| [assignment-4](assignment-4/) | Assignment 4 | GitOps delivery of the Task Tracker with Argo CD (Unit IV) |
 
 ## Note on the container images
 

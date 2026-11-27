@@ -3,10 +3,7 @@ Assignment-1-app-code/
 *.csr
 k8s-users/
 
-# Assignment 4 is its own public repo (github.com/pemadolker/dso202-gitops),
-# kept here as a nested clone. The sealing-key backup and my run notes must
-# never be committed anywhere.
-assignment-4/dso202-gitops/
-assignment-4/dso202-gitops-new/
-assignment-4/dso202-keys/
+
+# Assignment 4: my private run notes. A4's own ignore rules (keys,
+# plaintext secrets) are in assignment-4/.gitignore.
 assignment-4/RUN-GUIDE.md
